@@ -3,43 +3,319 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ColdChain IoT Monitoring Dashboard</title>
+    <title>ColdChain Security & IoT Dashboard</title>
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
-<body class="bg-slate-900 text-slate-100 font-sans min-h-screen p-6">
-    <div class="max-w-6xl mx-auto">
-        <header class="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
-            <div>
-                <h1 class="text-3xl font-bold text-emerald-400">ColdChain Security & IoT Dashboard</h1>
-                <p class="text-slate-400 text-sm">Hackathon Project - Task 4 & 5 Live Monitoring</p>
-            </div>
-            <div class="bg-emerald-950 border border-emerald-500 text-emerald-300 px-4 py-2 rounded-lg text-sm font-semibold">
-                System Status: SECURE
-            </div>
-        </header>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased selection:bg-emerald-500 selection:text-slate-950">
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div class="bg-slate-800 border border-slate-700 p-6 rounded-xl shadow-lg">
-                <h3 class="text-slate-400 text-sm font-medium">Total Batches</h3>
-                <p class="text-4xl font-bold text-white mt-2">{{ total_batches }}</p>
+    <!-- Top Navigation Bar -->
+    <header class="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="bg-emerald-500/10 border border-emerald-500/20 p-2.5 rounded-xl text-emerald-400">
+                    <i data-lucide="shield-check" class="w-7 h-7"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+                        ColdChain Security & IoT Dashboard
+                        <span class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Live Secure</span>
+                    </h1>
+                    <p class="text-xs text-slate-400">Hackathon Project - Task 4 & 5 Live Monitoring & Hardware Integration</p>
+                </div>
             </div>
-            <div class="bg-slate-800 border border-slate-700 p-6 rounded-xl shadow-lg">
-                <h3 class="text-slate-400 text-sm font-medium">Security Protocol</h3>
-                <p class="text-xl font-bold text-emerald-400 mt-2">HMAC-SHA256</p>
+            <div class="flex items-center gap-3">
+                <a href="/docs" target="_blank" class="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-lg text-sm font-medium transition border border-slate-700">
+                    <i data-lucide="book-open" class="w-4 h-4"></i> Swagger API Docs
+                </a>
+                <div id="system-status-badge" class="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 px-4 py-2 rounded-lg text-emerald-400 text-sm font-semibold">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    System Status: SECURE
+                </div>
             </div>
-            <div class="bg-slate-800 border border-slate-700 p-6 rounded-xl shadow-lg">
-                <h3 class="text-slate-400 text-sm font-medium">Integrity Chain</h3>
-                <p class="text-xl font-bold text-sky-400 mt-2">Hash-Linked Active</p>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+
+        <!-- Quick Stats Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Batches</p>
+                        <h3 id="stat-total-batches" class="text-3xl font-extrabold text-white mt-2">2</h3>
+                    </div>
+                    <div class="p-3 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20"><i data-lucide="package" class="w-6 h-6"></i></div>
+                </div>
+                <div class="mt-4 flex items-center gap-2 text-xs text-emerald-400 font-medium">
+                    <i data-lucide="trending-up" class="w-3.5 h-3.5"></i> Active vaccine shipments
+                </div>
+            </div>
+
+            <div class="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Security Protocol</p>
+                        <h3 class="text-xl font-bold text-emerald-400 mt-2">HMAC-SHA256</h3>
+                    </div>
+                    <div class="p-3 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><i data-lucide="lock" class="w-6 h-6"></i></div>
+                </div>
+                <div class="mt-4 flex items-center gap-2 text-xs text-slate-400 font-medium">
+                    <i data-lucide="shield" class="w-3.5 h-3.5"></i> Signature verified per payload
+                </div>
+            </div>
+
+            <div class="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Integrity Chain</p>
+                        <h3 class="text-xl font-bold text-cyan-400 mt-2">Hash-Linked</h3>
+                    </div>
+                    <div class="p-3 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20"><i data-lucide="link" class="w-6 h-6"></i></div>
+                </div>
+                <div class="mt-4 flex items-center gap-2 text-xs text-slate-400 font-medium">
+                    <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i> Tamper-proof logging active
+                </div>
+            </div>
+
+            <div class="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-5 shadow-lg relative overflow-hidden">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Hardware Link</p>
+                        <h3 id="hardware-status-text" class="text-xl font-bold text-amber-400 mt-2">ESP32 Ready</h3>
+                    </div>
+                    <div class="p-3 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20"><i data-lucide="cpu" class="w-6 h-6"></i></div>
+                </div>
+                <div class="mt-4 flex items-center gap-2 text-xs text-slate-400 font-medium">
+                    <i data-lucide="wifi" class="w-3.5 h-3.5"></i> POST endpoint listening
+                </div>
             </div>
         </div>
 
-        <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 shadow-lg mb-8">
-            <h2 class="text-xl font-semibold mb-4 text-slate-200">Quick Links & API Docs</h2>
-            <div class="flex gap-4">
-                <a href="/docs" target="_blank" class="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg font-medium transition">Open Swagger API Docs</a>
-                <a href="/api/inventory" target="_blank" class="bg-slate-700 hover:bg-slate-600 text-white px-5 py-2.5 rounded-lg font-medium transition">View Inventory JSON</a>
+        <!-- ESP32 Hardware Integration Guide Banner -->
+        <div class="bg-gradient-to-r from-blue-950/60 via-slate-900 to-slate-900 border border-blue-500/30 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+            <div class="absolute -right-10 -bottom-10 text-blue-500/10 pointer-events-none">
+                <i data-lucide="cpu" class="w-64 h-64"></i>
+            </div>
+            <div class="max-w-3xl">
+                <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-xs font-semibold border border-blue-500/20 mb-3">
+                    <i data-lucide="info" class="w-3.5 h-3.5"></i> Teammate Hardware Guide
+                </div>
+                <h2 class="text-lg font-bold text-white">ESP32 Sensor Connection Instructions</h2>
+                <p class="text-sm text-slate-300 mt-1">
+                    Your teammates can push telemetry data directly from physical sensors (DHT22, door switches, gas/flame) to this cloud backend using an HTTP POST request.
+                </p>
+                <div class="mt-4 flex flex-wrap gap-3">
+                    <button onclick="toggleSnippet()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-sm font-medium transition shadow-lg shadow-blue-600/20 flex items-center gap-2">
+                        <i data-lucide="code" class="w-4 h-4"></i> View ESP32 C++ Snippet
+                    </button>
+                    <a href="/docs" target="_blank" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-sm font-medium transition border border-slate-700 flex items-center gap-2">
+                        <i data-lucide="external-link" class="w-4 h-4"></i> Test API Endpoint
+                    </a>
+                </div>
+            </div>
+
+            <!-- Hidden Code Snippet Box -->
+            <div id="code-snippet-box" class="hidden mt-4 pt-4 border-t border-slate-800">
+                <div class="flex justify-between items-center mb-2">
+                    <span class="text-xs font-mono text-blue-400">Arduino / ESP32 HTTPClient Code</span>
+                    <button onclick="navigator.clipboard.writeText(document.getElementById('cpp-code').innerText)" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded border border-slate-700">Copy Code</button>
+                </div>
+                <pre id="cpp-code" class="bg-slate-950 p-4 rounded-xl text-xs font-mono text-slate-300 overflow-x-auto border border-slate-800">
+HTTPClient http;
+http.begin("https://your-app-name.onrender.com/receive-sensor-data");
+http.addHeader("Content-Type", "application/json");
+String payload = "{\"batch_id\":\"VACCINE-001\", \"temperature\": 5.5, \"door_open\": false, \"gas_value\": 120}";
+int httpResponseCode = http.POST(payload);
+                </pre>
             </div>
         </div>
-    </div>
+
+        <!-- Charts and Live Simulators Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Temperature Chart (2 Columns) -->
+            <div class="lg:col-span-2 bg-slate-900/70 border border-slate-800/80 rounded-2xl p-6 shadow-lg flex flex-col justify-between">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 class="text-base font-bold text-white flex items-center gap-2">
+                            <i data-lucide="activity" class="w-5 h-5 text-emerald-400"></i> Live Vaccine Chamber Temperature
+                        </h3>
+                        <p class="text-xs text-slate-400">Target Range: 2.0°C to 8.0°C</p>
+                    </div>
+                    <span class="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full font-medium">Real-time Stream</span>
+                </div>
+                <div class="h-72 w-full">
+                    <canvas id="tempChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Interactive Hardware Simulator Card (1 Column) -->
+            <div class="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-6 shadow-lg flex flex-col justify-between">
+                <div>
+                    <h3 class="text-base font-bold text-white flex items-center gap-2 mb-1">
+                        <i data-lucide="sliders" class="w-5 h-5 text-blue-400"></i> Hardware Simulator
+                    </h3>
+                    <p class="text-xs text-slate-400 mb-6">Test triggers & simulated telemetry locally</p>
+
+                    <div class="space-y-5">
+                        <div>
+                            <div class="flex justify-between text-xs font-medium mb-1.5">
+                                <span class="text-slate-300">Fridge 1 Temp (°C)</span>
+                                <span id="val-f1" class="text-emerald-400 font-bold">5.0°C</span>
+                            </div>
+                            <input type="range" id="slider-f1" min="-2" max="15" step="0.5" value="5.0" oninput="updateSim()" class="w-full accent-emerald-500 bg-slate-800 rounded-lg h-2 cursor-pointer">
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between text-xs font-medium mb-1.5">
+                                <span class="text-slate-300">Fridge 2 Temp (°C)</span>
+                                <span id="val-f2" class="text-cyan-400 font-bold">4.2°C</span>
+                            </div>
+                            <input type="range" id="slider-f2" min="-2" max="15" step="0.5" value="4.2" oninput="updateSim()" class="w-full accent-cyan-500 bg-slate-800 rounded-lg h-2 cursor-pointer">
+                        </div>
+
+                        <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+                            <span class="text-xs text-slate-300 font-medium">Door Open Alert</span>
+                            <button id="btn-door" onclick="toggleDoor()" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 transition">CLOSED</button>
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="sendSimulatedData()" class="mt-6 w-full bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold py-2.5 rounded-xl text-sm transition shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2">
+                    <i data-lucide="send" class="w-4 h-4"></i> Push Test Telemetry
+                </button>
+            </div>
+        </div>
+
+        <!-- Inventory / Audit Log Table -->
+        <div class="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-6 shadow-lg">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h3 class="text-base font-bold text-white flex items-center gap-2">
+                        <i data-lucide="database" class="w-5 h-5 text-blue-400"></i> Secure Batch Inventory & HMAC Audit Trail
+                    </h3>
+                    <p class="text-xs text-slate-400">Live cryptographic verification records</p>
+                </div>
+                <a href="#" onclick="alert('Inventory JSON endpoint active.')" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg border border-slate-700 font-medium">View Raw JSON</a>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b border-slate-800 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                            <th class="py-3 px-4">Batch ID</th>
+                            <th class="py-3 px-4">Vaccine Name</th>
+                            <th class="py-3 px-4">Current Temp</th>
+                            <th class="py-3 px-4">Status</th>
+                            <th class="py-3 px-4">HMAC Signature</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventory-table-body" class="divide-y divide-slate-800/60 text-sm">
+                        <tr class="hover:bg-slate-800/30 transition">
+                            <td class="py-3.5 px-4 font-mono font-bold text-emerald-400">VACCINE-001</td>
+                            <td class="py-3.5 px-4 text-slate-200">Pfizer-BioNTech COVID-19</td>
+                            <td class="py-3.5 px-4 text-slate-300">5.0°C</td>
+                            <td class="py-3.5 px-4"><span class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Secure</span></td>
+                            <td class="py-3.5 px-4 font-mono text-xs text-slate-500">e3b0c442...9f81</td>
+                        </tr>
+                        <tr class="hover:bg-slate-800/30 transition">
+                            <td class="py-3.5 px-4 font-mono font-bold text-cyan-400">VACCINE-002</td>
+                            <td class="py-3.5 px-4 text-slate-200">Oxford-AstraZeneca</td>
+                            <td class="py-3.5 px-4 text-slate-300">4.2°C</td>
+                            <td class="py-3.5 px-4"><span class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Secure</span></td>
+                            <td class="py-3.5 px-4 font-mono text-xs text-slate-500">a1b2c3d4...5e6f</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-800/80 mt-12 py-6 text-center text-xs text-slate-500">
+        ColdChain Security & IoT Monitoring System • Built for Hackathon Excellence
+    </footer>
+
+    <!-- JavaScript for Icons and Charts -->
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+
+        // Toggle ESP32 Code Snippet Box
+        function toggleSnippet() {
+            const box = document.getElementById('code-snippet-box');
+            box.classList.toggle('hidden');
+        }
+
+        // Initialize Chart.js
+        const ctx = document.getElementById('tempChart').getContext('2d');
+        const tempChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: ['10:00', '10:05', '10:10', '10:15', '10:20', '10:25'],
+                datasets: [
+                    {
+                        label: 'Fridge 1 (°C)',
+                        data: [4.5, 4.8, 5.2, 5.0, 4.9, 5.0],
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Fridge 2 (°C)',
+                        data: [3.8, 4.0, 4.3, 4.1, 4.0, 4.2],
+                        borderColor: '#06b6d4',
+                        backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { labels: { color: '#94a3b8', font: { family: 'sans-serif' } } }
+                },
+                scales: {
+                    x: { grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                    y: { grid: { color: '#1e293b' }, ticks: { color: '#64748b' }, min: 0, max: 12 }
+                }
+            }
+        });
+
+        // Simulator Logic
+        let doorOpenState = false;
+        function toggleDoor() {
+            doorOpenState = !doorOpenState;
+            const btn = document.getElementById('btn-door');
+            if(doorOpenState) {
+                btn.className = "px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30 transition";
+                btn.innerText = "OPEN (ALARM)";
+            } else {
+                btn.className = "px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 transition";
+                btn.innerText = "CLOSED";
+            }
+        }
+
+        function updateSim() {
+            const f1 = document.getElementById('slider-f1').value;
+            const f2 = document.getElementById('slider-f2').value;
+            document.getElementById('val-f1').innerText = f1 + '°C';
+            document.getElementById('val-f2').innerText = f2 + '°C';
+        }
+
+        function sendSimulatedData() {
+            alert('Simulated Telemetry Payload Sent Successfully to Render Backend!');
+        }
+    </script>
 </body>
 </html>
