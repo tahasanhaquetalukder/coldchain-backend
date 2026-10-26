@@ -1,10 +1,10 @@
 import hmac
 import hashlib
 from datetime import datetime
-from fastapi import FastAPI, HTTPException
+from pathlib import Path
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from fastapi import Request
 from models import BatchItem, SensorData
 
 app = FastAPI(
@@ -13,7 +13,9 @@ app = FastAPI(
     description="Task 4 & 5 Backend for Hackathon",
 )
 
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(
+    directory=str(Path(__file__).resolve().parent / "templates")
+)
 
 inventory_db = {
     "VACCINE-001": {
@@ -37,7 +39,11 @@ previous_block_hash = "0" * 64
 
 @app.get("/", response_class=HTMLResponse)
 def home_dashboard(request: Request):
-    return templates.TemplateResponse("dashboard.html", {"request": request})
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard.html",
+        context={"total_batches": len(inventory_db)},
+    )
 
 @app.get("/api/public/batch/{batch_id}")
 def public_qr_check(batch_id: str):
@@ -74,10 +80,10 @@ def receive_sensor_data(data: SensorData):
     ).hexdigest()
 
     if not hmac.compare_digest(expected_signature, data.hmac_signature):
-        return {
-            "status": "error",
-            "message": "Invalid HMAC signature! Data might be tampered.",
-        }, 401
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid HMAC signature! Data might be tampered.",
+        )
 
     block_string = f"{previous_block_hash}:{data.device_id}:{data.temperature}:{data.timestamp}"
     current_block_hash = hashlib.sha256(block_string.encode("utf-8")).hexdigest()
