@@ -1,30 +1,59 @@
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.database import engine, Base, get_db
-from app.models import User, Fridge, VaccineBatch
-from app.audit import verify_audit_chain
-from passlib.context import CryptContext
+from pydantic import BaseModel
+from typing import List
 
-# ডাটাবেস টেবিলগুলো অটো জেনারেট করার জন্য
-Base.metadata.create_all(bind=engine)
+from . import models, database, audit, hmac_auth
 
-app = FastAPI(title="ColdChain Vaccine Monitoring API", version="1.0.0")
+# ডাটাবেস টেবিল অটো-ক্রিয়েট করা
+models.Base.metadata.create_all(bind=database.engine)
 
-# CORS কনফিগারেশন (ফ্রন্টএন্ড কানেক্ট করার জন্য)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+app = FastAPI(
+    title="ColdChain Vaccine Monitoring API",
+    version="1.0.0",
+    description="IoT based secure cold chain monitoring system backend with hash-chain audit logs."
 )
+
+# Pydantic Schemas for Request Validation
+class SensorInput(BaseModel):
+    device_id: str
+    temperature: float
+    humidity: float
+
+class AuditResponse(BaseModel):
+    id: int
+    action: str
+    details: str
+    previous_hash: str
+    current_hash: str
+
+    class Config:
+        from_attributes = True
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to ColdChain Vaccine Monitoring & Management API"}
+    return {"message": "Welcome to ColdChain Backend API is running successfully!"}
 
-@app.get("/api/audit-logs/verify-integrity")
-def verify_integrity_route(db: Session = Depends(get_db)):
-    result = verify_audit_chain(db)
-    return result
+@app.post("/api/sensor", status_code=201)
+def receive_sensor_data(data: SensorInput, db: Session = Depends(database.get_db)):
+    """আইওটি ডিভাইস থেকে সেন্সর ডাটা রিসিভ করা এবং অডিট লগ এন্ট্রি করা"""
+    # ১. ডাটা সেভ করা
+    db_sensor = models.SensorData(
+        device_id=data.device_id,
+        temperature=data.temperature,
+        humidity=data.humidity
+    )
+    db.add(db_sensor)
+    db.commit()
+
+    # ২. অডিট ট্রেইলে হ্যাশ-চেইনিং রেকর্ড রাখা
+    log_details = f"Device {data.device_id} reported Temp: {data.temperature}°C, Humidity: {data.humidity}%"
+    audit.create_audit_log(db, action="SENSOR_DATA_RECEIVED", details=log_details)
+
+    return {"status": "success", "message": "Sensor data recorded securely."}
+
+@app.get("/api/audits", response_model=List[AuditResponse])
+def get_audit_logs(db: Session = Depends(database.get_db)):
+    """সকল অডিট লগগুলো রিটার্ন করে"""
+    logs = db.query(models.AuditLog).all()
+    return logs
