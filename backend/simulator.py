@@ -9,6 +9,6 @@ while True:
     ts, nonce, door = round(time.time(), 2), uuid.uuid4().hex, False
     body = dict(device_id=dev, temperature=round(t, 1), door_open=door, ts=ts, nonce=nonce,
                 compressor_on=t > 7, power_ok=True, battery=100)
-    body["signature"] = sign(canonical(dev, body["temperature"], door, ts, nonce))
+    body["signature"] = sign(canonical(dev, body["temperature"], door, ts, nonce, body["power_ok"], body["battery"], body["compressor_on"]))
     print(requests.post("http://127.0.0.1:8000/api/sensor", json=body).status_code, body["temperature"])
     time.sleep(5)
