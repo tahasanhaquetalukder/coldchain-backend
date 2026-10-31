@@ -1,0 +1,34 @@
+# Render blueprint: New Blueprint Repo in Render, or New -> Web Service and pick these values by hand.
+# The static site bakes VITE_API_URL at build time, so it must equal the API service's URL below.
+services:
+  - type: web
+    name: coldchain-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      # Tokens die with the value, so generate once and let Render store it.
+      - key: JWT_SECRET
+        generateValue: true
+      # Deliberately the same key simulator.py uses; change both or every reading is rejected as a bad signature.
+      - key: HMAC_SECRET_KEY
+        value: super-secret-hackathon-key
+
+  - type: web
+    name: coldchain-web
+    runtime: static
+    rootDir: frontend
+    plan: free
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: VITE_API_URL
+        value: https://coldchain-api.onrender.com

@@ -1,10 +1,13 @@
-"""Fake ESP32. Run from project root: python backend/simulator.py [fridge-1|fridge-2] [hot]
-Positional 'hot' pushes temperature above 12C to test the heat budget."""
+"""Fake ESP32. python backend/simulator.py [fridge-1|fridge-2] [hot]
+Positional 'hot' pushes temperature above 12C to test the heat budget.
+API_BASE=https://your-api.onrender.com python backend/simulator.py   # drive a deployed backend
+The key is read by app.hmac_auth, so set HMAC_SECRET_KEY identically here and on the server."""
 import os, sys, time, uuid, random, requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from app.hmac_auth import canonical, sign
 
+API = os.getenv("API_BASE", "http://127.0.0.1:8000").rstrip("/")
 dev = sys.argv[1] if len(sys.argv) > 1 else "fridge-1"; hot = "hot" in sys.argv
 t = 5.0
 while True:
@@ -13,5 +16,10 @@ while True:
     body = dict(device_id=dev, temperature=round(t, 1), door_open=door, ts=ts, nonce=nonce,
                 compressor_on=t > 7, power_ok=True, battery=100.0)
     body["signature"] = sign(canonical(dev, body["temperature"], door, ts, nonce, body["power_ok"], body["battery"], body["compressor_on"]))
-    print(requests.post("http://127.0.0.1:8000/api/sensor", json=body).status_code, body["temperature"])
+    try:
+        r = requests.post(f"{API}/api/sensor", json=body, timeout=30)
+        print(r.status_code, body["temperature"], "" if r.ok else r.text[:120])
+    except requests.RequestException as x:
+        # A free instance wakes slowly; keep signing the next reading instead of dying mid-demo.
+        print("ingest failed:", type(x).__name__, str(x)[:120])
     time.sleep(5)

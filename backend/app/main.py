@@ -54,6 +54,12 @@ app = FastAPI(title="ColdChain API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
+@app.get("/api/health")
+def health():
+    """Unauthenticated probe: Render's health check path and the first call to test when the dashboard cannot reach the API."""
+    return {"ok": True, "time": round(time.time(), 2)}
+
+
 # ---------- auth ----------
 bearer = HTTPBearer()
 
