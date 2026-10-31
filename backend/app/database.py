@@ -1,18 +1,18 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
+# লোকাল ডেভেলপমেন্ট ও হ্যাকাথনের জন্য SQLite ডাটাবেস ইউআরএল
+SQLALCHEMY_DATABASE_URL = "sqlite:///./coldchain.db"
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/coldchain_db")
-
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
 
+# ডিপেনডেন্সি ডাটাবেস সেশন পাওয়ার জন্য
 def get_db():
     db = SessionLocal()
     try:

@@ -1,27 +1,25 @@
-from sqlalchemy.orm import Session
-from app.models import AuditLog
 import hashlib
+from sqlalchemy.orm import Session
+from . import models
 
-def verify_audit_chain(db: Session) -> bool:
-    """
-    অডিট লগের হ্যাশ-চেইনিং (Hash-chaining) এবং আগের ও বর্তমান হ্যাশের সঠিকতা যাচাই করে।
-    """
-    logs = db.query(AuditLog).order_by(AuditLog.id.asc()).all()
-    prev_hash = "0" * 64
+def calculate_hash(previous_hash: str, action: str, details: str) -> str:
+    """ব্লকচেইন স্টাইলের হ্যাশ-চেইনিং লজিক যা ডাটা টেম্পারিং প্রতিরোধ করে"""
+    value_string = f"{previous_hash}{action}{details}"
+    return hashlib.sha256(value_string.encode('utf-8')).hexdigest()
 
-    for log in logs:
-        # লগে সংরক্ষিত previous_hash রিয়েল চেইনের সাথে মিলছে কিনা চেক করা
-        if log.previous_hash != prev_hash:
-            return False
-            
-        # মডেলের ফিল্ডগুলোর সাথে মিলিয়ে প্রত্যাশিত হ্যাশ কন্টেন্ট তৈরি করা
-        expected_content = f"{log.previous_hash}{log.action}{log.event_data}{log.timestamp}"
-        expected_hash = hashlib.sha256(expected_content.encode()).hexdigest()
-        
-        # current_hash ঠিক আছে কিনা যাচাই করা
-        if log.current_hash != expected_hash:
-            return False
-            
-        prev_hash = log.current_hash
-        
-    return True
+def create_audit_log(db: Session, action: str, details: str):
+    last_log = db.query(models.AuditLog).order_by(models.AuditLog.id.desc()).first()
+    
+    prev_hash = last_log.current_hash if last_log else "0" * 64
+    curr_hash = calculate_hash(prev_hash, action, details)
+
+    new_log = models.AuditLog(
+        action=action,
+        details=details,
+        previous_hash=prev_hash,
+        current_hash=curr_hash
+    )
+    db.add(new_log)
+    db.commit()
+    db.refresh(new_log)
+    return new_log
