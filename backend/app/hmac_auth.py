@@ -1,18 +1,13 @@
-import hmac
-import hashlib
-import os
+import hmac, hashlib, os
 
 SECRET_KEY = os.getenv("HMAC_SECRET_KEY", "super-secret-hackathon-key")
 
-def generate_hmac_signature(message: str) -> str:
-    """আইওটি ডিভাইস বা ক্লায়েন্টের জন্য HMAC SHA256 সিগনেচার তৈরি করে"""
-    return hmac.new(
-        SECRET_KEY.encode('utf-8'),
-        message.encode('utf-8'),
-        hashlib.sha256
-    ).hexdigest()
+def canonical(device_id, temperature, door_open, ts, nonce, power_ok=True, battery=100.0, compressor_on=False) -> str:
+    # every field the server stores is signed
+    return f"{device_id}|{temperature}|{int(bool(door_open))}|{ts}|{nonce}|{int(bool(power_ok))}|{battery}|{int(bool(compressor_on))}"
 
-def verify_hmac_signature(message: str, client_signature: str) -> bool:
-    """ইনকামিং রিকোয়েস্টের HMAC সিগনেচার ভেরিফাই করে"""
-    expected_signature = generate_hmac_signature(message)
-    return hmac.compare_digest(expected_signature, client_signature)
+def sign(message: str) -> str:
+    return hmac.new(SECRET_KEY.encode(), message.encode(), hashlib.sha256).hexdigest()
+
+def verify(message: str, signature: str) -> bool:
+    return hmac.compare_digest(sign(message), signature)
