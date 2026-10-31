@@ -3,7 +3,7 @@ import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
 import { Snowflake, DoorOpen, DoorClosed, Zap, BatteryLow, Fan, ShieldCheck, LogOut, AlertTriangle } from 'lucide-react';
 
-const API = 'http://127.0.0.1:8000';
+const API = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 const TONE = { Safe: '#1f8a5b', Warning: '#c98a0a', Breach: '#c8372d', 'At Risk': '#c98a0a', Discard: '#c8372d' };
 const font = { fontFamily: "'Public Sans', sans-serif" };
 const serif = { fontFamily: "'Fraunces', serif" };
