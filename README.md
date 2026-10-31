@@ -92,26 +92,31 @@ double-weighted budget accrual, inventory validation, the public page and tamper
 
 ## Publish on Render (free tier)
 
-`render.yaml` declares both halves: `coldchain-api` (Python web service, root `backend`) and
-`coldchain-web` (static site, root `frontend`). Push the branch, then Render → **New →
-Blueprint** and pick the repo.
+Two services, both created with **New → Web Service**; `render.yaml` records the same values but
+must not be applied as a Blueprint once the API exists, or Render creates a second API with its own
+empty database.
 
 | Setting | Value |
 | --- | --- |
-| API start command | `uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+| API | runtime Python, Root Directory `backend` |
+| API build / start | `pip install -r requirements.txt` / `uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+| API URL | `https://coldchain-backend-8b16.onrender.com` (Render picks the `-8b16` suffix) |
 | API health check | `/api/health` — open it first when anything says the server is unreachable |
-| Web build | `npm ci && npm run build`, publish `dist` |
-| Web env `VITE_API_URL` | `https://coldchain-api.onrender.com` |
+| Web | runtime Static, Root Directory `frontend`, build `npm ci && npm run build`, publish `dist` |
+| Web env `VITE_API_URL` | the API URL above, exactly |
+
+The API's bare root answers `{"detail":"Not Found"}` and that is correct — only `/api/...` routes
+exist, and the dashboard is served by the static site, not by FastAPI.
 
 `VITE_API_URL` is substituted into the bundle at **build** time, so it is not a runtime switch:
-if you rename the API service, change the value in `render.yaml` and redeploy the web service,
-or the page keeps calling the old host. `HMAC_SECRET_KEY` is pinned in `render.yaml` to the value
+if you rename the API service, change the value in the web service's env panel and redeploy the web
+service, or the page keeps calling the old host. `HMAC_SECRET_KEY` is pinned to the value
 `simulator.py` signs with — change one without the other and every reading is rejected.
 
 Keep the free instance warm and drive the demo with one command:
 
 ```bash
-API_BASE=https://coldchain-api.onrender.com backend/venv/Scripts/python.exe backend/simulator.py fridge-1
+API_BASE=https://coldchain-backend-8b16.onrender.com backend/venv/Scripts/python.exe backend/simulator.py fridge-1
 ```
 
 SQLite on Render is on an ephemeral disk: a redeploy or a long sleep recreates `coldchain.db`, and

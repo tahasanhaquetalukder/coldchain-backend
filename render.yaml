@@ -1,8 +1,10 @@
-# Render blueprint: New Blueprint Repo in Render, or New -> Web Service and pick these values by hand.
-# The static site bakes VITE_API_URL at build time, so it must equal the API service's URL below.
+# Reference values for the two services. coldchain-backend already exists as a hand-created
+# service, so do NOT apply this as a Blueprint now: it would create a second API with its own
+# empty database. Create coldchain-web by hand with the same values.
+# The static site bakes VITE_API_URL at build time, so it must equal the API's real URL.
 services:
   - type: web
-    name: coldchain-api
+    name: coldchain-backend-8b16   # Render appended -8b16; the plain name was taken
     runtime: python
     rootDir: backend
     plan: free
@@ -31,4 +33,4 @@ services:
       - key: NODE_VERSION
         value: "20"
       - key: VITE_API_URL
-        value: https://coldchain-api.onrender.com
+        value: https://coldchain-backend-8b16.onrender.com
