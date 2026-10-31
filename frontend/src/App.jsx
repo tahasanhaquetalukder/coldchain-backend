@@ -8,6 +8,16 @@ const TONE = { Safe: '#1f8a5b', Warning: '#c98a0a', Breach: '#c8372d', 'At Risk'
 const font = { fontFamily: "'Public Sans', sans-serif" };
 const serif = { fontFamily: "'Fraunces', serif" };
 
+const AUTH_KEY = 'coldchain.auth';
+const readAuth = () => { try { return JSON.parse(localStorage.getItem(AUTH_KEY)); } catch { return null; } };
+
+// FastAPI sends a string for HTTPException but an array for pydantic validation errors.
+const errMsg = (e) => {
+  const d = e.response?.data?.detail;
+  if (typeof d === 'string') return d;
+  return e.response ? 'Request rejected by the server' : 'Server not reachable';
+};
+
 const Pill = ({ s }) => (
   <span className="px-2.5 py-1 rounded-full text-xs font-bold text-white" style={{ background: TONE[s] }}>{s}</span>
 );
@@ -49,7 +59,7 @@ function PublicCheck({ code }) {
 // ---------- Login ----------
 function Login({ onAuth }) {
   const [u, setU] = useState('admin'), [p, setP] = useState('admin123'), [e, setE] = useState('');
-  const go = async () => { try { onAuth((await axios.post(`${API}/api/auth/login`, { username: u, password: p })).data); } catch (x) { setE(x.response?.data?.detail || 'Server not reachable'); } };
+  const go = async () => { try { onAuth((await axios.post(`${API}/api/auth/login`, { username: u, password: p })).data); } catch (x) { setE(errMsg(x)); } };
   return (
     <div className="min-h-screen grid md:grid-cols-2 bg-[#0b2a3b] text-white" style={font}>
       <div className="p-12 flex flex-col justify-end">
@@ -71,13 +81,16 @@ function Login({ onAuth }) {
 
 // ---------- Main app ----------
 export default function App() {
-  const [auth, setAuth] = useState(null);
+  const [auth, setAuth] = useState(readAuth);
   const [tab, setTab] = useState('dashboard');
   const [fr, setFr] = useState([]), [bt, setBt] = useState([]), [logs, setLogs] = useState([]);
   const [ver, setVer] = useState(null), [msg, setMsg] = useState('');
   const [nb, setNb] = useState({ code: '', vaccine: '', expiry: '', fridge_id: '' });
   const [hash, setHash] = useState(window.location.hash);
   useEffect(() => { const h = () => setHash(window.location.hash); window.addEventListener('hashchange', h); return () => window.removeEventListener('hashchange', h); }, []);
+  useEffect(() => {
+    if (auth) localStorage.setItem(AUTH_KEY, JSON.stringify(auth)); else localStorage.removeItem(AUTH_KEY);
+  }, [auth]);
 
   const api = useCallback(() => axios.create({ baseURL: API, headers: { Authorization: `Bearer ${auth?.token}` } }), [auth]);
   const load = useCallback(async () => {
@@ -93,7 +106,7 @@ export default function App() {
   if (hash.startsWith('#/check/')) return <PublicCheck code={decodeURIComponent(hash.slice(8))} />;
   if (!auth) return <Login onAuth={setAuth} />;
 
-  const act = async (fn) => { try { await fn(); setMsg(''); load(); } catch (e) { setMsg(e.response?.data?.detail || 'Action failed'); } };
+  const act = async (fn) => { try { await fn(); setMsg(''); load(); } catch (e) { setMsg(errMsg(e)); } };
   const canEdit = auth.role !== 'inspector', isAdmin = auth.role === 'admin', canAudit = auth.role !== 'pharmacist';
   const tabs = ['dashboard', 'inventory', ...(canAudit ? ['audit log'] : [])];
 
