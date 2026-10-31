@@ -16,7 +16,9 @@ const readAuth = () => { try { return JSON.parse(localStorage.getItem(AUTH_KEY))
 const errMsg = (e) => {
   const d = e.response?.data?.detail;
   if (typeof d === 'string') return d;
-  return e.response ? 'Request rejected by the server' : 'Server not reachable';
+  if (e.response) return 'Request rejected by the server';
+  // Naming the host is what separates a stale VITE_API_URL from a backend that is merely asleep.
+  return `Server not reachable: ${API || location.origin}`;
 };
 
 const Pill = ({ s }) => (
