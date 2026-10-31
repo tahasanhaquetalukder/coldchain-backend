@@ -4,7 +4,7 @@
 # The static site bakes VITE_API_URL at build time, so it must equal the API's real URL.
 services:
   - type: web
-    name: coldchain-backend-8b16   # Render appended -8b16; the plain name was taken
+    name: coldchain-backend   # Render appends a suffix you do not control; read the host off the service header
     runtime: python
     rootDir: backend
     plan: free
@@ -21,6 +21,12 @@ services:
       # Deliberately the same key simulator.py uses; change both or every reading is rejected as a bad signature.
       - key: HMAC_SECRET_KEY
         value: super-secret-hackathon-key
+      # Task 3 wants an SMS/Telegram/email alert on a long-open door. Uncomment both, or the alert
+      # stays audit-log only:
+      # - key: TELEGRAM_BOT_TOKEN
+      #   value: issued by @BotFather
+      # - key: TELEGRAM_CHAT_ID
+      #   value: your chat id, or a channel id like @yourchannel
 
   - type: web
     name: coldchain-web
@@ -32,5 +38,6 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "20"
+      # Set to the API service's real host before building, or the site ships calling nothing.
       - key: VITE_API_URL
-        value: https://coldchain-backend-8b16.onrender.com
+        value: https://your-api-host.onrender.com

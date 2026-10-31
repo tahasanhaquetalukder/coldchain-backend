@@ -6,3 +6,4 @@ bcrypt==5.0.0
 pyjwt==2.15.1
 pydantic==2.14.2
 requests==2.34.2
+paho-mqtt==2.1.0

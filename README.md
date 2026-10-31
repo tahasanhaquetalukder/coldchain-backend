@@ -8,7 +8,8 @@ QR check and a **tamper-evident audit log**.
 backend/    FastAPI + SQLAlchemy + SQLite   (REST API, HMAC ingest, JWT auth, hash-chain log)
 frontend/   React + Vite + Tailwind         (dashboard, inventory, audit log, public QR page)
 scripts/    smoke_test.py                   (Task 4 acceptance checks)
-render.yaml Blueprint: one Python service + one static site
+render.yaml Reference values for the two Render services — not applied as a Blueprint
+USER_MANUAL.md                              (how to operate the app: roles, screens, QR, audit log)
 ```
 
 ## Requirements
@@ -33,13 +34,25 @@ cd frontend
 npm install
 npm run dev
 
-# 3. Fake ESP32 (from the repo root; add "hot" to force a heat excursion)
+# 3. Fake ESP32 (from the repo root; "hot" forces a heat excursion, "door" holds the door open)
 backend\venv\Scripts\python.exe backend\simulator.py fridge-1
 backend\venv\Scripts\python.exe backend\simulator.py fridge-2 hot
+backend\venv\Scripts\python.exe backend\simulator.py fridge-1 door   # door alert after 60 s
 ```
 
 On first start the API seeds two fridges (`fridge-1`, `fridge-2`), two batches (`VAX-001`,
 `VAX-002`) and the three accounts below.
+
+### If the fridges talk MQTT
+
+Task 1 asks for MQTT and Task 4 asks for signed HTTP ingest. `backend/mqtt_bridge.py` satisfies both:
+the ESP32 signs on the device and publishes that body to `coldchain/<device_id>/reading`, and the
+bridge forwards it to `/api/sensor` unchanged. It never signs anything, so it cannot invent a reading.
+
+```bash
+mosquitto -p 1883
+API_BASE=http://127.0.0.1:8000 MQTT_HOST=127.0.0.1 backend/venv/Scripts/python.exe backend/mqtt_bridge.py
+```
 
 ## Demo accounts
 
@@ -76,6 +89,15 @@ with `HMAC_SECRET_KEY`. The server rejects a bad signature, a timestamp more tha
 (3 h for `buffered: true` offline replays), a reused nonce, an out-of-order duplicate and an
 unknown device — each rejection is written to the audit chain.
 
+The ingest reply is the device's only instruction channel: `{"status":"ok",
+"batch_status":"Safe"|"At Risk"|"Discard"|null}`. A node drives its red LED from `Discard` and
+leaves it latched until an admin resets the batch, which is how Task 2's
+"keep the red LED ON until admin reset" works when the budget lives on the server.
+
+A door left open past 60 s is logged as `DOOR_ALERT` once (it does not re-alert while it stays
+open) and, when `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` are set, pushed to Telegram after the
+database commit so a slow network cannot delay the reading that triggered it.
+
 ## Verify it works
 
 ```bash
@@ -100,7 +122,7 @@ empty database.
 | --- | --- |
 | API | runtime Python, Root Directory `backend` |
 | API build / start | `pip install -r requirements.txt` / `uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
-| API URL | `https://coldchain-backend-8b16.onrender.com` (Render picks the `-8b16` suffix) |
+| API URL | `https://<name Render gave it>.onrender.com` — read it off that service's header; the suffix is assigned, not chosen |
 | API health check | `/api/health` — open it first when anything says the server is unreachable |
 | Web | runtime Static, Root Directory `frontend`, build `npm ci && npm run build`, publish `dist` |
 | Web env `VITE_API_URL` | the API URL above, exactly |
@@ -116,7 +138,7 @@ service, or the page keeps calling the old host. `HMAC_SECRET_KEY` is pinned to 
 Keep the free instance warm and drive the demo with one command:
 
 ```bash
-API_BASE=https://coldchain-backend-8b16.onrender.com backend/venv/Scripts/python.exe backend/simulator.py fridge-1
+API_BASE=https://your-api-host.onrender.com backend/venv/Scripts/python.exe backend/simulator.py fridge-1
 ```
 
 SQLite on Render is on an ephemeral disk: a redeploy or a long sleep recreates `coldchain.db`, and
@@ -137,7 +159,6 @@ bundle never points at `127.0.0.1`, because that is the visitor's own machine.
 | Published page says `Server not reachable` | `VITE_API_URL` was unset when `npm run build` ran, or the free API instance is asleep — open `/api/health` on the API host to tell the two apart |
 | First visit after a quiet period takes ~50 s | Render free instances sleep when idle; run `simulator.py` with `API_BASE` pointed at it to stay awake |
 | Every reading returns `401 invalid signature` after deploy | The API was rebuilt with a different `HMAC_SECRET_KEY` than the device signs with |
-| --- | --- |
 | `http://127.0.0.1:5173` refuses to connect | Vite binds `localhost` (often IPv6). Open `http://localhost:5173` or run `npm run dev -- --host` |
 | Simulator prints `401 invalid signature` on every line | `HMAC_SECRET_KEY` differs between the server and the simulator process |
 | Simulator prints `201` but dashboard stays `offline` | Dashboard marks a fridge offline after 20 s without a *live* reading; buffered replays still update the data |
@@ -151,6 +172,11 @@ bundle never points at `127.0.0.1`, because that is the visitor's own machine.
   hackathon defaults so the demo runs with zero setup. Set both before deploying anywhere real.
 - `AUDIT_ANCHOR` moves the append-only head-anchor file (`audit_anchor.log`), which lets
   `verify_chain` also detect deleted records. Keep it on a different disk for it to mean anything.
+- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` both have to be set for door alerts to leave the
+  process; with either missing, the alert is still logged and nothing is sent. Get the token from
+  `@BotFather` and the chat id from `@userinfobot`.
+- `MQTT_HOST` / `MQTT_PORT` (bridge, default `127.0.0.1:1883`) and `API_BASE` (bridge and
+  simulator) are separate: the bridge publishes to the broker and posts to the API, so it needs both.
 - `backend/.env` is currently **inert** — no code calls `load_dotenv()`, and
   `backend/app/database.py` hard-codes SQLite. Set the variables in the shell instead.
 - CORS is `allow_origins=["*"]` for the demo.

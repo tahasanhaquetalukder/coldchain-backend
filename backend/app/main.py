@@ -6,6 +6,7 @@ from typing import Optional
 
 import bcrypt
 import jwt
+import requests
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -142,6 +143,19 @@ def cleanup_old_nonces(db: Session):
     return deleted
 
 
+def notify(text: str):
+    """Best-effort Telegram alert. Silent when unconfigured, and never raises: an outage is exactly
+    when this runs, and a hanging network call must not cost the reading that triggered it."""
+    token, chat = os.getenv("TELEGRAM_BOT_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
+    if not (token and chat):
+        return
+    try:
+        requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                      json={"chat_id": chat, "text": text}, timeout=3)
+    except requests.RequestException:
+        pass
+
+
 class SensorMsg(BaseModel):
     device_id: str
     temperature: float
@@ -195,13 +209,19 @@ def sensor(m: SensorMsg, db: Session = Depends(database.get_db)):
     if not m.door_open:
         f.door_open_since, f.door_alerted = None, False
     f.door_open = m.door_open
+    alert = None
     if f.door_open and not f.door_alerted and m.ts - f.door_open_since > DOOR_LIMIT:
         f.door_alerted = True
-        audit.create_audit_log(db, "DOOR_ALERT", f"{f.name} door open > {DOOR_LIMIT}s (notify via Telegram/SMS here)")
+        alert = f"{f.name} door has been open over {DOOR_LIMIT} seconds"
+        audit.create_audit_log(db, "DOOR_ALERT", alert)
     db.add(models.Reading(device_id=m.device_id, ts=m.ts, temperature=m.temperature, door_open=m.door_open))
     db.commit()
     cleanup_old_nonces(db)
-    return {"status": "ok"}
+    if alert:
+        notify(alert)   # after the commit: SQLite holds one writer, and a network call must not sit inside it
+    statuses = [batch_state(b)["status"] for b in db.query(models.Batch).filter_by(fridge_id=f.id)]
+    return {"status": "ok",
+            "batch_status": "Discard" if "Discard" in statuses else "At Risk" if "At Risk" in statuses else "Safe" if statuses else None}
 
 
 # ---------- dashboard & inventory ----------
