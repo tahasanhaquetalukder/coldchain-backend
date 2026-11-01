@@ -1,5 +1,6 @@
 import os
 import re
+import secrets
 import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
@@ -12,6 +13,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from . import audit, database, hmac_auth, models
@@ -19,33 +21,84 @@ from . import audit, database, hmac_auth, models
 models.Base.metadata.create_all(bind=database.engine)
 
 
-def ensure_reading_columns():
-    """create_all builds a missing table but never alters an existing one, so a coldchain.db that
-    already holds readings would keep ingesting without the two columns the live view needs."""
+def ensure_columns(table: str, *names: str):
+    """Add model columns a pre-existing table does not have yet.
+
+    create_all builds a missing table but never alters an existing one, so a coldchain.db that already
+    holds readings would keep ingesting with holes in the live view. PRAGMA table_info is SQLite-only,
+    so this asks the SQLAlchemy inspector instead and lets the dialect name the column type - the same
+    code runs against SQLite and the Postgres a deployed backend gets. Rows that predate the column
+    come back NULL, which every reader of these three columns already treats as 'unknown'.
+    """
+    have = {c["name"] for c in inspect(database.engine).get_columns(table)}
+    missing = [n for n in names if n not in have]
+    if not missing:
+        return
     with database.engine.begin() as conn:
-        have = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info(readings)")}
-        for column, decl in (("buffered", "BOOLEAN DEFAULT 0"), ("received_ts", "FLOAT DEFAULT 0")):
-            if column not in have:
-                conn.exec_driver_sql(f"ALTER TABLE readings ADD COLUMN {column} {decl}")
+        for name in missing:
+            col = models.Base.metadata.tables[table].columns[name]
+            conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} "
+                                 f"{col.type.compile(database.engine.dialect)}")
 
 
-ensure_reading_columns()
+# what the live view reads: buffered = this arrived from the node's offline queue, received_ts = when
+# the server got it (that pair is what keeps device clock drift separate from age), and hmac_key = the
+# secret a node was issued, NULL meaning it still signs with the shared fleet key.
+ensure_columns("readings", "buffered", "received_ts")
+ensure_columns("fridges", "hmac_key")
 
-JWT_SECRET = os.getenv("JWT_SECRET", "change-me-jwt-secret")
+# `or` so that a blank JWT_SECRET= in the environment is treated as unset rather than as a signing key
+# of zero bytes. The value it falls back to is a placeholder, and DEMO_SECRETS below is what refuses it.
+JWT_SECRET = os.getenv("JWT_SECRET") or "CHANGE_ME_JWT_SECRET"
+ENV = os.getenv("ENV", "development").strip().lower()
+PRODUCTION = ENV == "production"
+# origins the browser front-end is actually served from; empty means same-origin only
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
 BUDGET = 60.0          # minutes above 8C per batch
 LIVE_SKEW = 60         # seconds allowed for live messages
 BUFFER_WINDOW = 3 * 3600
 DOOR_LIMIT = 60        # seconds
 NONCE_TTL = 86400      # replay protection window to keep
 
+DEMO_SECRETS = {"JWT_SECRET": "CHANGE_ME_JWT_SECRET", "HMAC_SECRET_KEY": "CHANGE_ME_FLEET_KEY"}
+
+
+def refuse_insecure_start():
+    """The two values that decide who can sign in and who can sign a reading.
+
+    Both have demo defaults, and a deployed backend that kept one is open to anyone who has read this
+    source: the JWT default mints an admin token, the HMAC default forges any node's reading. So with
+    ENV=production the process dies at import instead of serving traffic on a known secret.
+    """
+    if not PRODUCTION:
+        return
+    still_default = [name for name, default in DEMO_SECRETS.items()
+                     if os.getenv(name, "") in ("", default)]
+    if still_default:
+        raise RuntimeError(f"ENV=production will not start on a missing or default "
+                          f"{', '.join(still_default)} - set them to a fresh secrets.token_hex(32)")
+
+
+refuse_insecure_start()
+
+
+def seed_password(username: str) -> str:
+    env = f"SEED_{username.upper()}_PASSWORD"
+    value = os.getenv(env)
+    if value:
+        return value
+    if PRODUCTION:
+        raise RuntimeError(f"ENV=production will not create the {username} login without {env}")
+    return f"{username}123"      # the documented demo credentials
+
 
 # ---------- startup seed ----------
 def seed(db: Session):
     if db.query(models.User).first():
         return
-    for u, r in [("admin", "admin"), ("pharmacist", "pharmacist"), ("inspector", "inspector")]:
-        db.add(models.User(username=u, role=r,
-               password_hash=bcrypt.hashpw(f"{u}123".encode(), bcrypt.gensalt()).decode()))
+    for username in ("admin", "pharmacist", "inspector"):
+        db.add(models.User(username=username, role=username,
+               password_hash=bcrypt.hashpw(seed_password(username).encode(), bcrypt.gensalt()).decode()))
     db.add_all([models.Fridge(name="Fridge A", device_id="fridge-1"),
                 models.Fridge(name="Fridge B", device_id="fridge-2")])
     db.commit()
@@ -66,7 +119,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="ColdChain API", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# "*" is only ever a dev convenience: it lets any page that can reach the API read every dashboard
+# payload with the visitor's stored token. Production must name its origins in CORS_ORIGINS.
+app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS or (["*"] if not PRODUCTION else []),
+                   allow_methods=["*"], allow_headers=["*"])
+
+
+@app.get("/")
+def service_card():
+    """Names itself instead of 404-ing, for whoever opens the API host in a browser to see if it is alive."""
+    return {"service": "ColdChain API", "docs": "/docs", "health": "/api/health"}
 
 
 @app.get("/api/health")
@@ -183,26 +245,58 @@ class SensorMsg(BaseModel):
     buffered: bool = False   # True when replayed from the offline buffer
 
 
+# Rejections are the one thing an unauthenticated sender can produce on demand, and every audit row
+# costs a hash of the previous one. (device, reason) gets one row per REJECT_LOG_INTERVAL and the
+# count of what was swallowed rides along on the next one, so the live view can still add them up.
+REJECT_LOG_INTERVAL = 60
+_REJECT_SEEN = {}           # (device_id, reason) -> [last logged epoch, suppressed since then]
+
+
+def log_rejection(db: Session, device_id: str, reason: str, nonce: str):
+    now = time.time()
+    seen = _REJECT_SEEN.setdefault((device_id, reason), [0.0, 0])
+    if now - seen[0] < REJECT_LOG_INTERVAL:
+        seen[1] += 1
+        return
+    # a bot cycling random device ids would otherwise grow this dict without bound; losing the
+    # suppression counters is harmless, the next packet in each key starts counting again
+    if len(_REJECT_SEEN) > 2048:
+        _REJECT_SEEN.clear()
+        seen = _REJECT_SEEN.setdefault((device_id, reason), [0.0, 0])
+    details = f"device={device_id} reason={reason} nonce={nonce}"
+    if seen[1]:
+        details += f" suppressed={seen[1]}"
+        seen[1] = 0
+    seen[0] = now
+    audit.create_audit_log(db, "MESSAGE_REJECTED", details)
+
+
 @app.post("/api/sensor", status_code=201)
 def sensor(m: SensorMsg, db: Session = Depends(database.get_db)):
     def reject(reason):
-        audit.create_audit_log(db, "MESSAGE_REJECTED", f"device={m.device_id} reason={reason} nonce={m.nonce}")
+        log_rejection(db, m.device_id, reason, m.nonce)
         raise HTTPException(401, reason)
 
+    f = db.query(models.Fridge).filter_by(device_id=m.device_id).first()
+    # a node signs with the key it was handed at registration; the pre-key fleet still uses the shared secret
+    key = f.hmac_key if f and f.hmac_key else hmac_auth.SECRET_KEY
     msg = hmac_auth.canonical(m.device_id, m.temperature, m.door_open, m.ts, m.nonce,
-                              m.power_ok, m.battery, m.compressor_on)
-    if not hmac_auth.verify(msg, m.signature):
+                              m.power_ok, m.battery, m.compressor_on, m.buffered)
+    if not hmac_auth.verify(msg, m.signature, key):
         reject("invalid signature")
     window = BUFFER_WINDOW if m.buffered else LIVE_SKEW
     if abs(time.time() - m.ts) > window:
         reject("stale timestamp")
     if db.get(models.Nonce, m.nonce):
         reject("replayed nonce")
-    f = db.query(models.Fridge).filter_by(device_id=m.device_id).first()
     if not f:
         reject("unknown device")
     db.add(models.Nonce(nonce=m.nonce, ts=m.ts))
-    if m.ts <= f.last_ts:    # duplicate / out-of-order: store nothing, no double counting
+    # Anything at or before the last accepted timestamp is ignored: no reading row, no budget minutes.
+    # That is what makes a resend harmless, and it is also why the node must empty its offline buffer
+    # oldest-first BEFORE sending live readings - one live sample lands ahead of the backlog and every
+    # queued hour after it is silently dropped as out-of-order. See the buffer rule in README.md.
+    if m.ts <= f.last_ts:
         db.commit()
         return {"status": "duplicate-ignored"}
     # heat budget: elapsed time since previous reading, weighted by temperature
@@ -267,7 +361,7 @@ def dashboard(_: dict = Depends(ANY), db: Session = Depends(database.get_db)):
 
 # ---------- live device view ----------
 DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
-REJECT_RE = re.compile(r"device=(\S+) reason=(.+?) nonce=(\S*)")
+REJECT_RE = re.compile(r"device=(\S+) reason=(.+?) nonce=(\S*)(?: suppressed=(\d+))?")
 
 
 class DeviceIn(BaseModel):
@@ -280,9 +374,10 @@ def recent_rejects(db: Session, hours: int = 1):
 
     The audit log is the only place a rejected packet leaves a trace - nothing is stored on the
     readings path - so this is what turns "the dashboard is not moving" into "the node signs with a
-    stale HMAC key" or "nobody registered fridge-3".
+    stale HMAC key" or "nobody registered fridge-3". Rejections are throttled to one audit row per
+    (device, reason) per REJECT_LOG_INTERVAL, and the suppressed count on each row is added back here.
     """
-    since = datetime.utcnow() - timedelta(hours=hours)
+    since = audit.utc_now() - timedelta(hours=hours)
     grouped = {}
     for l in (db.query(models.AuditLog)
               .filter(models.AuditLog.action == "MESSAGE_REJECTED", models.AuditLog.timestamp >= since)
@@ -290,10 +385,12 @@ def recent_rejects(db: Session, hours: int = 1):
         m = REJECT_RE.search(l.details or "")
         if not m:
             continue
-        device, reason = m.group(1), m.group(2)
+        # group 3 is the nonce; the suppressed count is group 4 and is absent on the first row of a burst
+        device, reason, swallowed = m.group(1), m.group(2), int(m.group(4) or 0)
         g = grouped.setdefault(device, {"n": 0, "reasons": {}, "last": 0.0})
-        g["n"] += 1
-        g["reasons"][reason] = g["reasons"].get(reason, 0) + 1
+        # one row stands for 1 + suppressed packets, so the throttle cannot hide a flood from the operator
+        g["n"] += 1 + swallowed
+        g["reasons"][reason] = g["reasons"].get(reason, 0) + 1 + swallowed
         g["last"] = l.timestamp.replace(tzinfo=timezone.utc).timestamp()
     return grouped
 
@@ -322,6 +419,8 @@ def devices(_: dict = Depends(ANY), db: Session = Depends(database.get_db)):
             "replaying": bool(last and last.buffered),
             "drift_s": drift,
             "online": age is not None and age < 20,
+            # which secret this node is expected to sign with; the key itself never leaves the server
+            "own_key": bool(f.hmac_key),
             "rejects": bad["n"] if bad else 0,
             "reasons": bad["reasons"] if bad else {},
         })
@@ -338,12 +437,27 @@ def add_device(d: DeviceIn, u=Depends(roles("admin")), db: Session = Depends(dat
         raise HTTPException(422, "Give the node a name of 1-40 characters")
     if db.query(models.Fridge).filter_by(device_id=device_id).first():
         raise HTTPException(409, f"{device_id} is already registered")
-    f = models.Fridge(name=name, device_id=device_id, temperature=None)
+    f = models.Fridge(name=name, device_id=device_id, temperature=None,
+                      hmac_key=secrets.token_hex(16))
     db.add(f)
     db.commit()
     audit.create_audit_log(db, "DEVICE_ADDED", f"{device_id} ({name}) by {u['sub']}")
-    return {"id": f.id, "device_id": device_id, "topic": f"coldchain/{device_id}/reading",
+    return {"id": f.id, "device_id": device_id, "hmac_key": f.hmac_key,
+            "topic": f"coldchain/{device_id}/reading",
             "command_topic": f"coldchain/{device_id}/command"}
+
+
+@app.post("/api/devices/{fid}/key")
+def rotate_key(fid: int, u=Depends(roles("admin")), db: Session = Depends(database.get_db)):
+    """Issue a new secret. The old one stops working on the next packet, so the node must be
+    reflashed with what this call returns - there is no grace period and no way to read it again."""
+    f = db.get(models.Fridge, fid)
+    if not f:
+        raise HTTPException(404, "No device with that id")
+    f.hmac_key = secrets.token_hex(16)
+    db.commit()
+    audit.create_audit_log(db, "DEVICE_KEY_ROTATED", f"{f.device_id} by {u['sub']}")
+    return {"status": "ok", "device_id": f.device_id, "hmac_key": f.hmac_key}
 
 
 @app.delete("/api/devices/{fid}")
@@ -447,7 +561,12 @@ def public_batch(code: str, db: Session = Depends(database.get_db)):
 # ---------- audit ----------
 @app.get("/api/audits")
 def audits(_: dict = Depends(roles("admin", "inspector")), db: Session = Depends(database.get_db)):
-    return db.query(models.AuditLog).order_by(models.AuditLog.id.desc()).limit(200).all()
+    """Named fields, newest first. Returning the ORM objects would publish whatever the model has today
+    - including SQLAlchemy's own state - and the chain columns the UI must show would be incidental."""
+    return [{"id": l.id, "action": l.action, "details": l.details,
+             "previous_hash": l.previous_hash, "current_hash": l.current_hash,
+             "timestamp": l.timestamp.isoformat()}
+            for l in db.query(models.AuditLog).order_by(models.AuditLog.id.desc()).limit(200)]
 
 
 @app.get("/api/audits/verify")
