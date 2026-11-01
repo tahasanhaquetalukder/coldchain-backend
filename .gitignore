@@ -11,3 +11,9 @@ firmware/tests/build/
 firmware/tests/vectors.txt
 # the database lands in whatever directory uvicorn was started from
 coldchain.db
+# every local database, backup and anchor file: they hold node keys, hashes and audit rows
+*.db
+*.db.bak
+*.pre-task4.bak
+# the node's own config: Wi-Fi password and HMAC key. cc_config.example.h is the tracked template
+firmware/coldchain_node/cc_config.h

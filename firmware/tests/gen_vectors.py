@@ -12,17 +12,20 @@ import hashlib
 import hmac
 import sys
 
-DEMO_KEY = "super-secret-hackathon-key"
+# A name that says what it is: a fixture the vectors are generated from, never a key a node ships with.
+DEMO_KEY = "cc-host-test-vector-key"
 LONG_KEY = "k" * 131          # > 64 bytes, so both implementations must hash the key first
 
 CASES = [
-    # the exact shape backend/app/hmac_auth.py:canonical() produces for a live reading
-    (DEMO_KEY, "fridge-1|5.4|0|1793486530.0|0123456789abcdef0123456789abcdef|1|100.0|0"),
+    # the exact shape backend/app/hmac_auth.py:canonical() produces. The last digit is the buffered
+    # flag: 0 for a live reading, 1 for one arriving out of the node's offline queue.
+    (DEMO_KEY, "fridge-1|5.4|0|1793486530.0|0123456789abcdef0123456789abcdef|1|100.0|0|0"),
     # whole numbers still carry one decimal, which is where a hand-rolled signer breaks
-    (DEMO_KEY, "fridge-2|12.0|1|1793486535.0|deadbeefdeadbeefdeadbeefdeadbeef|0|87.0|1"),
-    (DEMO_KEY, "fridge-1|-0.4|0|1700000000.0|ffffffffffffffffffffffffffffffff|1|0.0|0"),
+    (DEMO_KEY, "fridge-2|12.0|1|1793486535.0|deadbeefdeadbeefdeadbeefdeadbeef|0|87.0|1|0"),
+    # a backfilled sample: the old ts is inside the signature, and so is the flag that admits it
+    (DEMO_KEY, "fridge-1|-0.4|0|1700000000.0|ffffffffffffffffffffffffffffffff|1|0.0|0|1"),
     (DEMO_KEY, ""),
-    (LONG_KEY, "fridge-1|3.3|0|1793486540.0|00000000000000000000000000000000|1|50.0|1"),
+    (LONG_KEY, "fridge-1|3.3|0|1793486540.0|00000000000000000000000000000000|1|50.0|1|0"),
     # RFC 4231 test case 2, independent of this project
     ("Jefe", "what do ya want for nothing?"),
 ]
