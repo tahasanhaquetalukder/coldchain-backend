@@ -4,7 +4,8 @@
 
   Every decision lives in coldchain_core.h so it can be compiled and asserted off-device; this file
   only reads pins, drives pins and moves bytes. Configuration - pins, Wi-Fi, transport, device id -
-  is in cc_config.h. Wiring and the library list are in firmware/README.md.
+  is in cc_config.h: copy cc_config.example.h to cc_config.h and fill it in before flashing. The
+  firmware will not build without that file, and cc_config.h is gitignored because it holds secrets.
 
   The node does not track the heat budget. It is per batch, batches move between fridges, and the
   server owns it - so the node signs each reading and the server's answer carries the worst batch
@@ -32,15 +33,20 @@
 
 #if INGEST_TRANSPORT == INGEST_MQTT
 #include <PubSubClient.h>
+#if MQTT_USE_TLS
+#include <WiFiClientSecure.h>
+#endif
 #else
 #include <HTTPClient.h>
-#if API_TLS
+#if API_TLS || USE_HTTPS_DIRECT
 #include <WiFiClientSecure.h>
 #endif
 #endif
 
 static const cc::Limits LIMITS = cc::Limits::taskSpec();
-static cc::Clock clock;
+// Not named `clock`: <time.h> is included for time() and declares ::clock(), and a namespace-scope
+// object of the same name is a redeclaration error. nodeClock is spelled that way for no other reason.
+static cc::Clock nodeClock;
 static cc::Compressor compressor;
 static cc::DoorWatch doorWatch;
 static cc::RedLed redLed;
@@ -52,7 +58,14 @@ static DHT dht(PIN_DHT_DATA, DHT22);
 static Adafruit_SSD1306 oled(128, 64, &Wire, -1);
 static WiFiClient wifiClient;
 #if INGEST_TRANSPORT == INGEST_MQTT
+#if MQTT_USE_TLS
+// PubSubClient speaks MQTT over any Stream it is handed, so TLS is a different transport object and
+// not a different protocol: same topics, same body, same signature.
+static WiFiClientSecure brokerTransport;
+static PubSubClient net(brokerTransport);
+#else
 static PubSubClient net(wifiClient);
+#endif
 static char readTopic[64], cmdTopic[64];
 #endif
 
@@ -113,9 +126,44 @@ static void onCommand(char* topic, uint8_t* payload, unsigned int len) {
   }
 }
 
+#if MQTT_USE_TLS
+// Bring-up only, and the one line you should change before this node goes anywhere real:
+// setInsecure() still encrypts, but it checks nothing about the certificate it was given, so anyone on
+// the path can impersonate the broker and feed this node fake commands or drop its readings. Put the
+// broker's CA in cc_config.h as   #define MQTT_CA_CERT "-----BEGIN CERTIFICATE-----\n...\n"
+// and this same block verifies the certificate and the host name instead.
+static void configureBrokerTls() {
+#ifdef MQTT_CA_CERT
+  brokerTransport.setCACert(MQTT_CA_CERT);
+  Serial.println("broker TLS: verifying against the pinned CA");
+#else
+  brokerTransport.setInsecure();
+  Serial.println("broker TLS: setInsecure - bring-up only, pin MQTT_CA_CERT for the final build");
+#endif
+}
+#endif
+
+// An empty MQTT_USER is the anonymous connect that backend/mqtt_bridge.py and a local mosquitto
+// answer, so the defaults stay exactly as they were; a hosted broker sets both.
+static bool brokerConnect() {
+  const char* user = MQTT_USER;
+  bool ok = (user && user[0]) ? net.connect("esp32-" DEVICE_ID, user, MQTT_PASS)
+                              : net.connect("esp32-" DEVICE_ID);
+  if (ok) {
+    net.subscribe(cmdTopic, 1);
+  } else {
+    // state() separates the two failures a remote teammate actually hits: -4 is no route to the
+    // broker (wrong host/port, or TLS turned on against a plain port), 5 is the login refused.
+    Serial.printf("broker %s:%d refused (state %d) - readings keep buffering\n",
+                  MQTT_HOST, MQTT_PORT, net.state());
+  }
+  return ok;
+}
+
 // Handing the JSON to the broker is the whole of the MQTT contract; the bridge that subscribes to
 // coldchain/<device>/reading is the thing that POSTs it. A publish returns true once the broker has
-// it, which is delivery to the bridge, not ingestion - see firmware/README.md.
+// accepted it at QoS 1, and the node counts the sample from that moment: it cannot see the bridge's
+// HTTP answer, which is why the bridge runs beside the API and keeps a session for this client.
 static void transportSend(const char* body, Verdict* v) {
   v->http = 0;
   v->detail[0] = '\0';
@@ -125,19 +173,37 @@ static void transportSend(const char* body, Verdict* v) {
   }
 }
 #else
+// USE_HTTPS_DIRECT is the remote-teamate setting: the node POSTs the same signed body straight to the
+// hosted API, so nobody has to run a broker or the bridge for it to appear on the dashboard.
 static void transportSend(const char* body, Verdict* v) {
   v->http = 0;
   v->detail[0] = '\0';
   HTTPClient http;
-#if API_TLS
+#if API_TLS || USE_HTTPS_DIRECT
   static WiFiClientSecure secureClient;
-  secureClient.setInsecure();                    // no client certificate; HMAC + nonce is the auth
+  // Encrypting but unverified: setInsecure() accepts any certificate, which is fine while the node is
+  // proving it can reach the API and not fine afterwards. A fake endpoint still cannot get a forged
+  // reading accepted - the signature is over the body, not over the TLS - but it can drop readings and
+  // it can serve a page that lies about a batch. Pin the CA for the final build:
+  //   #define API_CA_CERT "-----BEGIN CERTIFICATE-----\n...\n"
+#ifdef API_CA_CERT
+  secureClient.setCACert(API_CA_CERT);
+#else
+  secureClient.setInsecure();
+#endif
   if (!http.begin(secureClient, API_BASE_URL API_SENSOR_PATH)) return;
 #else
   if (!http.begin(wifiClient, API_BASE_URL API_SENSOR_PATH)) return;
 #endif
   http.addHeader("Content-Type", "application/json");
+#if USE_HTTPS_DIRECT
+  // A free Render instance sleeps after ~15 idle minutes and the first request is the one that wakes
+  // it, which takes 30-50 s. A short timeout gives up first, and the node then looks broken while it
+  // is really buffering.
+  http.setTimeout(30000);
+#else
   http.setTimeout(8000);
+#endif
   int code = http.POST(body);
   if (code > 0) {
     String reply = http.getString();
@@ -158,7 +224,7 @@ static void takeSample(uint32_t boot) {
   cc::Sample s;
   s.tempC = lastTempC;
   s.bootMs = boot;
-  s.tsS = clock.at(boot);
+  s.tsS = nodeClock.at(boot);
   makeNonce(s.nonce);
   s.doorOpen = doorOpen;
   s.powerOk = mainsOk;
@@ -175,8 +241,8 @@ static void syncClock(uint32_t boot) {
     clockSynced = true;
     Serial.println("ntp synced");
   }
-  clock.sync(static_cast<uint32_t>(now), boot);
-  uint16_t filled = rlog.backfill(clock, boot);
+  nodeClock.sync(static_cast<uint32_t>(now), boot);
+  uint16_t filled = rlog.backfill(nodeClock, boot);
   if (filled) Serial.printf("backfilled %u buffered readings\n", filled);
 }
 
@@ -197,8 +263,10 @@ static void drainQueue(uint32_t boot) {
 
   cc::Wire w = cc::wireOf(s->tempC, s->tsS, s->batteryPct);
   char canon[CANON_BUF], sig[65], body[PAYLOAD_BUF];
+  // Must be byte-identical to backend/app/hmac_auth.py canonical()+sign() - same field order, same
+  // "X.Y" floats, "buffered" inside the signature - which firmware/tests/run_tests.sh proves per commit.
   cc::canonical(canon, sizeof canon, DEVICE_ID, w, s->doorOpen, s->nonce, s->powerOk,
-                s->compressorOn);
+                s->compressorOn, fromBacklog);
   cc::hmacHex(HMAC_KEY, canon, sig);
   cc::payload(body, sizeof body, DEVICE_ID, w, s->doorOpen, s->nonce, sig, s->powerOk,
               s->compressorOn, fromBacklog);
@@ -206,7 +274,7 @@ static void drainQueue(uint32_t boot) {
   Verdict v;
   transportSend(body, &v);
   cc::Action a = cc::decide(v.http, v.detail[0] ? v.detail : nullptr,
-                            rlog.oldestAgeS(clock.at(boot)), 1, LIMITS);
+                            rlog.oldestAgeS(nodeClock.at(boot)), 1, LIMITS);
   if (a == cc::ACT_ACCEPTED) {
     rlog.advance();
     if (fromBacklog) sentBacklog++; else sentLive++;
@@ -318,6 +386,9 @@ void setup() {
 #if INGEST_TRANSPORT == INGEST_MQTT
   snprintf(readTopic, sizeof readTopic, "coldchain/%s/reading", DEVICE_ID);
   snprintf(cmdTopic, sizeof cmdTopic, "coldchain/%s/command", DEVICE_ID);
+#if MQTT_USE_TLS
+  configureBrokerTls();
+#endif
   net.setServer(MQTT_HOST, MQTT_PORT);
   net.setBufferSize(PAYLOAD_BUF);                // PubSubClient defaults to 256; the body is ~270 B
   net.setCallback(onCommand);
@@ -334,10 +405,9 @@ void loop() {
     if (boot - lastWifi > 5000) { lastWifi = boot; WiFi.begin(WIFI_SSID, WIFI_PASS); }
   }
 #if INGEST_TRANSPORT == INGEST_MQTT
-  if (!net.connected() && boot - lastBrokerMs > 5000) {
+  if (!net.connected() && WiFi.status() == WL_CONNECTED && boot - lastBrokerMs > 5000) {
     lastBrokerMs = boot;
-    if (net.connect("esp32-" DEVICE_ID)) net.subscribe(cmdTopic, 1);
-    else Serial.println("broker unreachable, readings will buffer");
+    brokerConnect();
   }
   net.loop();
 #endif
@@ -345,7 +415,6 @@ void loop() {
   syncClock(boot);
   pollDoor();
   pollPowerButton();
-  releaseButtons();
 
   if (boot - lastSampleMs >= LIMITS.sampleEveryS * 1000u) {
     lastSampleMs = boot;

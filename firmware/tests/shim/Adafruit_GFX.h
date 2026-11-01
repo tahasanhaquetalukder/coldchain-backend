@@ -1,4 +1,5 @@
-// Stubs for the two Adafruit display libraries, as one pair of headers.
+// Stubs for the two Adafruit display libraries, split the way the real headers split them: this is the
+// graphics base class, and Adafruit_SSD1306.h adds the display that derives from it.
 #pragma once
 #include <stdarg.h>
 #include <stdint.h>
@@ -21,13 +22,3 @@ class Adafruit_GFX {
   size_t printf(const char* fmt, ...) { va_list a; va_start(a, fmt); int n = vprintf(fmt, a); va_end(a); return n; }
 };
 
-class Adafruit_SSD1306 : public Adafruit_GFX {
- public:
-  Adafruit_SSD1306(int16_t w, int16_t h, TwoWire* wire, int16_t rst)
-      : w_(w), h_(h), wire_(wire), rst_(rst) {}
-  bool begin(uint8_t vcc, uint8_t addr) { (void)vcc; (void)addr; return true; }
-
- private:
-  int16_t w_, h_, rst_;
-  TwoWire* wire_;
-};

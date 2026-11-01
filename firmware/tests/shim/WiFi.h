@@ -17,4 +17,4 @@ class WiFiClass {
   void mode(uint8_t) {}
   void disconnect() {}
 };
-inline WiFiClass WiFi;
+static WiFiClass WiFi;  // static so the single-TU syntax check needs no C++17

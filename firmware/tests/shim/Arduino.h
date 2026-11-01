@@ -20,6 +20,8 @@ inline void digitalWrite(uint8_t, uint8_t) {}
 inline int digitalRead(uint8_t) { return HIGH; }
 inline uint32_t millis() { static uint32_t t = 0; t += 40; return t; }
 inline void delay(uint32_t) {}
+// esp32-hal-time.h declares this on the real core, with the two extra servers defaulted.
+inline void configTime(long, int, const char*, const char* = nullptr, const char* = nullptr) {}
 
 class String {
  public:
@@ -40,4 +42,4 @@ class SerialShim {
   void println(const char*) {}
   void printf(const char* fmt, ...) { va_list a; va_start(a, fmt); vprintf(fmt, a); va_end(a); }
 };
-inline SerialShim Serial;
+static SerialShim Serial;  // static, not inline: inline variables need C++17 and this check has to run on the toolchain the tests use

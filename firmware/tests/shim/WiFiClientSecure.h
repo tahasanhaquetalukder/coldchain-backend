@@ -4,4 +4,5 @@
 class WiFiClientSecure : public WiFiClient {
  public:
   void setInsecure() {}
+  void setCACert(const char* pem) { (void)pem; }
 };
