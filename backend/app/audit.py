@@ -1,10 +1,16 @@
-import hashlib, os
+import hashlib, os, threading
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from . import models
 
 GENESIS = "0" * 64
 ANCHOR = os.getenv("AUDIT_ANCHOR", "audit_anchor.log")  # keep outside the DB (ideally on another disk/host)
+
+# The chain is read-modify-write: pick up the head hash, append, commit, anchor. Two requests that
+# read the head before either inserts both chain onto the same record, which forks the chain and makes
+# Verify Integrity report tampering that nobody did. One process holds this lock; run a single worker
+# per database, or move the head into a row with a real transactional lock.
+_CHAIN_LOCK = threading.Lock()
 
 
 def utc_now() -> datetime:
@@ -18,14 +24,17 @@ def calculate_hash(prev: str, action: str, details: str, ts: str) -> str:
 
 
 def create_audit_log(db: Session, action: str, details: str):
-    last = db.query(models.AuditLog).order_by(models.AuditLog.id.desc()).first()
-    prev = last.current_hash if last else GENESIS
-    now = utc_now()
-    log = models.AuditLog(action=action, details=details, timestamp=now, previous_hash=prev,
-                          current_hash=calculate_hash(prev, action, details, now.isoformat()))
-    db.add(log); db.commit(); db.refresh(log)
-    with open(ANCHOR, "a") as f:   # head anchor: catches deletion of the newest records
-        f.write(f"{log.id} {log.current_hash}\n")
+    with _CHAIN_LOCK:
+        last = db.query(models.AuditLog).order_by(models.AuditLog.id.desc()).first()
+        prev = last.current_hash if last else GENESIS
+        now = utc_now()
+        log = models.AuditLog(action=action, details=details, timestamp=now, previous_hash=prev,
+                              current_hash=calculate_hash(prev, action, details, now.isoformat()))
+        db.add(log)
+        db.commit()
+        db.refresh(log)
+        with open(ANCHOR, "a") as f:   # head anchor: catches deletion of the newest records
+            f.write(f"{log.id} {log.current_hash}\n")
     return log
 
 

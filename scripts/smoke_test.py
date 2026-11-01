@@ -10,7 +10,7 @@ Run it against a SCRATCH server so your demo database stays clean:
 Add --db <path> to also prove the hash chain detects an edited record. That leaves the
 database permanently flagged as tampered, so never point it at a demo database.
 """
-import argparse, os, sys, time, uuid, sqlite3
+import argparse, os, re, sys, time, uuid, sqlite3
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
 import requests
@@ -23,18 +23,28 @@ a = p.parse_args()
 BASE, ok, bad = a.url.rstrip("/"), [], []
 
 
+def masked(value):
+    """Nothing here prints a credential, not even a throwaway one from a scratch database -
+    terminal scrollback and CI logs get copied. Node keys and JWT fragments both disappear."""
+    text = re.sub(r"\b[0-9a-f]{32}\b", "<32-hex node key redacted>", str(value))
+    return re.sub(r"eyJ[A-Za-z0-9_-]{8,}", "<jwt redacted>", text)
+
+
 def check(name, cond, detail=""):
     (ok if cond else bad).append(name)
-    print(f"{'PASS' if cond else 'FAIL':5} {name}" + (f" -> {detail}" if detail else ""))
+    # every line this prints goes through masked(), so a future check cannot leak by accident
+    print(f"{'PASS' if cond else 'FAIL':5} {masked(name)}"
+          + (f" -> {masked(detail)}" if detail else ""))
 
 
-def send(device, t, ts=None, door=False, buffered=False, **over):
+def send(device, t, ts=None, door=False, buffered=False, key=None, **over):
     ts = round(ts if ts is not None else time.time(), 2)
     nonce = over.pop("nonce", uuid.uuid4().hex)
     body = dict(device_id=device, temperature=t, door_open=door, ts=ts, nonce=nonce,
                 power_ok=True, battery=100.0, compressor_on=False, buffered=buffered, **over)
     body["signature"] = hmac_auth.sign(hmac_auth.canonical(
-        body["device_id"], t, door, ts, nonce, body["power_ok"], body["battery"], body["compressor_on"]))
+        body["device_id"], t, door, ts, nonce, body["power_ok"], body["battery"],
+        body["compressor_on"], buffered), key)
     return requests.post(f"{BASE}/api/sensor", json=body)
 
 
@@ -48,7 +58,8 @@ print(f"\n== ColdChain smoke test against {BASE} ==\n")
 tok = {}
 for role in ("admin", "pharmacist", "inspector"):
     r = requests.post(f"{BASE}/api/auth/login", json={"username": role, "password": f"{role}123"})
-    check(f"login {role}", r.status_code == 200 and r.json().get("token"), r.text[:80])
+    check(f"login {role}", r.status_code == 200 and r.json().get("token"),
+          f"role={r.json().get('role')} token issued")
     tok[role] = r.json().get("token", "")
 H = {k: {"Authorization": f"Bearer {v}"} for k, v in tok.items()}
 check("wrong password rejected", requests.post(f"{BASE}/api/auth/login",
@@ -79,9 +90,19 @@ ts = round(time.time(), 2)
 forged = dict(device_id="fridge-1", temperature=30.0, door_open=False, ts=ts, nonce=uuid.uuid4().hex,
               power_ok=True, battery=100.0, compressor_on=False)
 forged["signature"] = hmac_auth.sign(hmac_auth.canonical(
-    "fridge-1", 5.0, False, ts, forged["nonce"], True, 100.0, False))   # signed for 5.0C
+    "fridge-1", 5.0, False, ts, forged["nonce"], True, 100.0, False, False))   # signed for 5.0C
 check("temperature changed after signing rejected",
       requests.post(f"{BASE}/api/sensor", json=forged).status_code == 401)
+# buffered is what widens the window from 60 s to 3 h, so it has to be inside the signature: this is a
+# half-hour-old reading sent as live, then the same bytes claiming to have come out of the offline queue.
+half = round(time.time() - 1800, 2)
+n3 = uuid.uuid4().hex
+relabel = dict(device_id="fridge-1", temperature=5.0, door_open=False, ts=half, nonce=n3,
+               power_ok=True, battery=100.0, compressor_on=False, buffered=True)
+relabel["signature"] = hmac_auth.sign(hmac_auth.canonical(
+    "fridge-1", 5.0, False, half, n3, True, 100.0, False, False))
+check("relabelling a reading as backlog rejected",
+      requests.post(f"{BASE}/api/sensor", json=relabel).status_code == 401)
 check("stale timestamp rejected", send("fridge-1", 5.0, ts=time.time() - 900).status_code == 401)
 n = uuid.uuid4().hex
 send("fridge-2", 5.0, nonce=n)
@@ -105,6 +126,9 @@ node = requests.post(f"{BASE}/api/devices", json={"name": "Smoke node", "device_
                      headers=H["admin"])
 check("admin registers a node and gets its topics back",
       node.status_code == 201 and node.json().get("topic") == "coldchain/smoke-node/reading", node.text[:80])
+key = node.json().get("hmac_key", "")
+check("registration issues the node its own key",
+      len(key) == 32 and all(c in "0123456789abcdef" for c in key), key)
 check("a duplicate id is refused", requests.post(f"{BASE}/api/devices", json={"name": "x",
       "device_id": "smoke-node"}, headers=H["admin"]).status_code == 409)
 check("an id that cannot be a topic is refused", requests.post(f"{BASE}/api/devices",
@@ -112,22 +136,41 @@ check("an id that cannot be a topic is refused", requests.post(f"{BASE}/api/devi
 check("a never-reported node has no temperature, not a default one",
       next(d for d in requests.get(f"{BASE}/api/devices", headers=H["admin"]).json()["devices"]
            if d["device_id"] == "smoke-node")["temperature"] is None)
-send("smoke-node", 6.5)
+check("the fleet key no longer opens a node that was given its own",
+      send("smoke-node", 9.9).status_code == 401)
+check("the node's own key is accepted", send("smoke-node", 6.5, key=key).status_code == 201)
 rows = requests.get(f"{BASE}/api/readings", params={"device_id": "smoke-node"}, headers=H["admin"]).json()
 check("readings come back oldest first with arrival and buffer flags",
       len(rows) == 1 and {"ts", "received_ts", "buffered", "temperature"} <= set(rows[0])
       and abs(rows[0]["received_ts"] - time.time()) < 60, str(rows)[:120])
-send("smoke-node", 6.6, ts=time.time() - 4 * 3600, buffered=True)   # past the 3 h replay window
+send("smoke-node", 6.6, ts=time.time() - 4 * 3600, buffered=True, key=key)   # past the 3 h replay window
 live = next(d for d in requests.get(f"{BASE}/api/devices", headers=H["admin"]).json()["devices"]
             if d["device_id"] == "smoke-node")
 check("rejections are counted and explained per device",
       live["rejects"] >= 1 and "stale timestamp" in live["reasons"], str(live["reasons"]))
+check("the list says a node runs on its own key but never shows the key",
+      live["own_key"] is True and "hmac_key" not in live, str(live)[:80])
+old = key
+blocked = requests.post(f"{BASE}/api/devices/{live['id']}/key", headers=H["pharmacist"])
+check("pharmacist cannot rotate a node key", blocked.status_code == 403)
+key = requests.post(f"{BASE}/api/devices/{live['id']}/key", headers=H["admin"]).json().get("hmac_key", "")
+check("admin rotation issues a different key", len(key) == 32 and key != old, key)
+check("the old key stops working on the next packet", send("smoke-node", 6.7, key=old).status_code == 401)
+check("the new key is accepted", send("smoke-node", 6.7, key=key).status_code == 201)
+swept = requests.get(f"{BASE}/api/devices", headers=H["admin"]).text + \
+    requests.get(f"{BASE}/api/audits", headers=H["admin"]).text
+check("no key ever leaves the server in a list or an audit row", old not in swept and key not in swept)
+seeded = next(d for d in requests.get(f"{BASE}/api/devices", headers=H["admin"]).json()["devices"]
+              if d["device_id"] == "fridge-1")
+check("a node from before per-device keys keeps using the fleet secret",
+      seeded["own_key"] is False and send("fridge-1", 5.0).status_code == 201)
 check("an unregistered id is listed for the operator",
       any(u["device_id"] == "fridge-99" for u in
           requests.get(f"{BASE}/api/devices", headers=H["admin"]).json()["unknown"]))
+kept = len(requests.get(f"{BASE}/api/readings", params={"device_id": "smoke-node"}, headers=H["admin"]).json())
 gone = requests.delete(f"{BASE}/api/devices/{live['id']}", headers=H["admin"])
 check("unregistering a node takes its readings with it",
-      gone.status_code == 200 and gone.json().get("readings_deleted") == 1
+      gone.status_code == 200 and gone.json().get("readings_deleted") == kept
       and not requests.get(f"{BASE}/api/readings", params={"device_id": "smoke-node"},
                            headers=H["admin"]).json(), str(gone.text)[:80])
 

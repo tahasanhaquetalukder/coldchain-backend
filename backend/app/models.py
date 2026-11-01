@@ -22,6 +22,7 @@ class Fridge(Base):
     battery = Column(Float, default=100.0)
     compressor_on = Column(Boolean, default=False)
     last_ts = Column(Float, default=0.0)   # last accepted reading time (epoch)
+    hmac_key = Column(String)              # per-node secret; NULL = signs with the shared fleet key
 
 class Batch(Base):
     __tablename__ = "batches"

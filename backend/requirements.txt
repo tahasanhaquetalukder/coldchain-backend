@@ -7,3 +7,10 @@ pyjwt==2.15.1
 pydantic==2.14.2
 requests==2.34.2
 paho-mqtt==2.1.0
+python-dotenv==1.2.4
+# Only needed when DATABASE_URL points at Postgres; SQLite needs nothing extra.
+psycopg2-binary==2.9.13
+# Test-only, and small enough that one requirements file is worth the few MB in the image.
+# starlette's TestClient is built on httpx, so both are needed to run backend/tests.
+pytest==9.2.0
+httpx==0.28.1

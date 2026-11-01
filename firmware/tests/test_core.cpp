@@ -227,9 +227,12 @@ static void wireFormat() {
   check("a negative temperature keeps its sign", strcmp(neg.temp, "-0.4") == 0, neg.temp);
 
   char canon[128];
-  cc::canonical(canon, sizeof canon, "fridge-1", w, true, "abc123", false, true);
+  cc::canonical(canon, sizeof canon, "fridge-1", w, true, "abc123", false, true, false);
   check("canonical string is the exact field order the server rebuilds",
-        strcmp(canon, "fridge-1|12.0|1|1793486530.0|abc123|0|97.0|1") == 0, canon);
+        strcmp(canon, "fridge-1|12.0|1|1793486530.0|abc123|0|97.0|1|0") == 0, canon);
+  cc::canonical(canon, sizeof canon, "fridge-1", w, true, "abc123", false, true, true);
+  check("the offline flag is signed, so backlog cannot be claimed as live",
+        strcmp(canon, "fridge-1|12.0|1|1793486530.0|abc123|0|97.0|1|1") == 0, canon);
 
   char body[512];
   cc::payload(body, sizeof body, "fridge-1", w, true, "abc123", "SIG", false, true, true);
@@ -330,11 +333,11 @@ static int emitPayload(int argc, char** argv) {
   cc::Sample s = sample(tempC, 0, tsS, nonce, atoi(argv[8]) != 0, atoi(argv[9]) != 0,
                         atoi(argv[10]) != 0, battery);
   cc::Wire w = cc::wireOf(s.tempC, s.tsS, s.batteryPct);
+  bool buf = atoi(argv[11]) != 0;
   char canon[256], sig[65], body[1024];
-  cc::canonical(canon, sizeof canon, device, w, s.doorOpen, s.nonce, s.powerOk, s.compressorOn);
+  cc::canonical(canon, sizeof canon, device, w, s.doorOpen, s.nonce, s.powerOk, s.compressorOn, buf);
   cc::hmacHex(key, canon, sig);
-  cc::payload(body, sizeof body, device, w, s.doorOpen, s.nonce, sig, s.powerOk, s.compressorOn,
-              atoi(argv[11]) != 0);
+  cc::payload(body, sizeof body, device, w, s.doorOpen, s.nonce, sig, s.powerOk, s.compressorOn, buf);
   fputs(body, stdout);
   return 0;
 }

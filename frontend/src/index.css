@@ -1,3 +1,66 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  /* Fraunces is a display face only; every control, table and number stays in Public Sans so the
+     columns line up. The faces themselves are loaded in index.html. */
+  html {
+    font-family: 'Public Sans', system-ui, sans-serif;
+  }
+
+  body {
+    @apply bg-[#eef4f6] text-slate-900 antialiased;
+  }
+
+  .display {
+    font-family: 'Fraunces', serif;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-3xl p-6;
+  }
+
+  .btn-primary {
+    @apply bg-[#0e5a7a] text-white font-bold rounded-xl px-4 py-2 disabled:opacity-50;
+  }
+
+  .btn-quiet {
+    @apply border rounded-xl px-3 py-1.5 bg-white text-sm disabled:opacity-50;
+  }
+
+  .btn-danger {
+    @apply text-red-700 underline text-sm disabled:opacity-50;
+  }
+
+  .field {
+    @apply border rounded-xl px-3 py-2 bg-white text-sm;
+  }
+
+  .label {
+    @apply text-xs font-bold uppercase tracking-wide text-slate-500;
+  }
+}
+
+/* Printing the label is the point of the QR modal, and the page behind it must not come along. */
+@media print {
+
+  body * {
+    visibility: hidden;
+  }
+
+  #qr-print,
+  #qr-print * {
+    visibility: visible;
+  }
+
+  #qr-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    text-align: center;
+  }
+}

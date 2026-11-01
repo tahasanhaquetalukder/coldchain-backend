@@ -2,7 +2,9 @@
 'hot' pushes temperature above 12C to test the heat budget; 'door' holds the door open past
 the 60-second alert.
 API_BASE=https://your-api.onrender.com python backend/simulator.py   # drive a deployed backend
-The key is read by app.hmac_auth, so set HMAC_SECRET_KEY identically here and on the server.
+The key is read by app.hmac_auth, so set HMAC_SECRET_KEY identically here and on the server. That
+makes this node a fleet-key node - the two seeded fridges. A node registered through the web app signs
+with its own issued key and this simulator cannot imitate it.
 Compressor follows the Task 1 rule: ON at 7C, OFF at 3C, never restarting within 60 seconds."""
 import os, sys, time, uuid, random, requests
 
@@ -23,8 +25,9 @@ while True:
     elif t >= 7 and ts - off_since >= MIN_OFF_S:
         comp_on = True
     body = dict(device_id=dev, temperature=round(t, 1), door_open=door, ts=ts, nonce=nonce,
-                compressor_on=comp_on, power_ok=True, battery=100.0)
-    body["signature"] = sign(canonical(dev, body["temperature"], door, ts, nonce, body["power_ok"], body["battery"], body["compressor_on"]))
+                compressor_on=comp_on, power_ok=True, battery=100.0, buffered=False)
+    body["signature"] = sign(canonical(dev, body["temperature"], door, ts, nonce, body["power_ok"],
+                                        body["battery"], comp_on, body["buffered"]))
     try:
         r = requests.post(f"{API}/api/sensor", json=body, timeout=30)
         print(r.status_code, body["temperature"], "comp:on" if comp_on else "comp:off",

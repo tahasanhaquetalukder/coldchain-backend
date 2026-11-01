@@ -205,8 +205,8 @@ class ReadingLog {
 
 // ------------------------------------------------------------------ the signed string
 // backend/app/hmac_auth.py builds "{device_id}|{temperature}|{door}|{ts}|{nonce}|{power}|{battery}|
-// {compressor}" from values Pydantic already parsed, and every float in it prints the way Python's
-// str() prints it. Three consequences the node has to respect:
+// {compressor}|{buffered}" from values Pydantic already parsed, and every float in it prints the way
+// Python's str() prints it. Three consequences the node has to respect:
 //   * temperature and battery carry exactly one decimal, so 12 is sent as "12.0" and never "12";
 //   * ts is a float, so whole seconds print as "1793486530.0";
 //   * the digits signed and the digits sent are the same bytes, so both come from one Wire struct.
@@ -224,10 +224,13 @@ inline Wire wireOf(float tempC, uint32_t tsS, uint8_t batteryPct) {
   return w;
 }
 
+// buffered is inside the signature because it is what tells the server to widen the timestamp window
+// from 60 s to 3 h. Unsigned, a reading captured off the wire could be relabelled as backlog and sent
+// as live - or an hour-old one passed off as this second's sample.
 inline int canonical(char* out, size_t n, const char* deviceId, const Wire& w, bool doorOpen,
-                     const char* nonce, bool powerOk, bool compressorOn) {
-  return snprintf(out, n, "%s|%s|%d|%s|%s|%d|%s|%d", deviceId, w.temp, doorOpen ? 1 : 0, w.ts,
-                  nonce, powerOk ? 1 : 0, w.battery, compressorOn ? 1 : 0);
+                     const char* nonce, bool powerOk, bool compressorOn, bool buffered) {
+  return snprintf(out, n, "%s|%s|%d|%s|%s|%d|%s|%d|%d", deviceId, w.temp, doorOpen ? 1 : 0, w.ts,
+                  nonce, powerOk ? 1 : 0, w.battery, compressorOn ? 1 : 0, buffered ? 1 : 0);
 }
 
 // ts is the signed value itself, not the sample's, so a backfilled timestamp can never be sent as
