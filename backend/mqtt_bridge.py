@@ -14,6 +14,9 @@ Expected payload, exactly as simulator.py sends it:
      "nonce":"...","signature":"...","power_ok":true,"battery":100.0,"compressor_on":false,
      "buffered":false}
 
+When that is accepted and the answer names a batch status, the bridge publishes
+`{"batch_status":"Discard"}` on coldchain/<device_id>/command so the node can latch its red LED.
+
 A forward that fails is reported and dropped: the broker redelivers only while it holds a session
 for this client, so run the bridge beside the API rather than as the only thing that survives a
 redeploy.
@@ -31,7 +34,7 @@ PORT = int(os.getenv("MQTT_PORT", "1883"))
 TOPIC = "coldchain/+/reading"
 
 
-def on_message(_client, _userdata, message):
+def on_message(client, _userdata, message):
     try:
         body = json.loads(message.payload)
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -40,12 +43,30 @@ def on_message(_client, _userdata, message):
     if not isinstance(body, dict):
         print("dropped, not an object:", message.topic)
         return
-    body.setdefault("device_id", message.topic.split("/")[1])
+    device = body.setdefault("device_id", message.topic.split("/")[1])
     try:
         r = requests.post(f"{API}/api/sensor", json=body, timeout=15)
         print(message.topic, r.status_code, r.text[:120])
+        echo_command(client, device, r)
     except requests.RequestException as x:
         print(message.topic, "forward failed:", type(x).__name__, str(x)[:120])
+
+
+def echo_command(client, device_id, response):
+    """Send the ingest answer back to coldchain/<device>/command.
+
+    A node on MQTT never sees /api/sensor's reply, and Task 2 wants its red LED latched while a batch
+    reads Discard - which only the server knows, because the budget is per batch and batches move.
+    Only batch_status travels: this is a status echo, not a control channel, and it stays unsigned
+    because nothing the node does with it can change a stored reading.
+    """
+    try:
+        reply = response.json() if response.ok else None
+    except ValueError:
+        return
+    if isinstance(reply, dict) and "batch_status" in reply:
+        client.publish(f"coldchain/{device_id}/command",
+                       json.dumps({"batch_status": reply["batch_status"]}), qos=1)
 
 
 def main():

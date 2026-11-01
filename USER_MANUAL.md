@@ -41,7 +41,7 @@ click **Sign in**.
 
 | Account | Password | Can do |
 | --- | --- | --- |
-| `admin` | `admin123` | Everything, including **Admin reset** and the audit log |
+| `admin` | `admin123` | Everything, including **Admin reset**, registering nodes and the audit log |
 | `pharmacist` | `pharmacist123` | Dashboard + all inventory. **No Audit log tab at all** |
 | `inspector` | `inspector123` | Read-only: dashboard, inventory table, audit log. Cannot add or move batches |
 
@@ -57,15 +57,64 @@ If a red line appears under the password box:
   `https://that-host/api/health`; JSON back means it's awake, `no-server` means the address is dead.
 - `Request rejected by the server` — the host answered but refused. Look at the API's log.
 
-## 3. Dashboard
+## 3. Live
+
+The tab for when a device is being connected. It opens on whichever node last reported; the others
+are cards across the top, each labelled with how long ago its last accepted reading was.
+
+| Badge | Means |
+| --- | --- |
+| `live 3s` | a reading arrived within the last 20 seconds |
+| `stale 40s` | nothing for 20 s – 2 min: the node is alive, the link or the API is not |
+| `offline 12m` | nothing for more than 2 minutes |
+| `never reported` | registered, but no packet from it has ever passed verification |
+| `emptying buffer` | the newest accepted reading was replayed from the node's offline queue |
+
+The trace is drawn against the node's own timestamps, so an outage is a visible gap and points
+marked with a dot came from the buffer rather than live. Under it:
+
+- **signed 19:50:23 · arrived 2s ago** — the clock inside the packet against the server's clock.
+- **node clock is -0.7s against the server** — a few seconds is normal; minutes means the node never
+  reached an NTP server, and its packets will start being refused as `stale timestamp`.
+- **N readings stored · battery 97%** — the battery percentage the node itself reported.
+- the last ten readings, newest first, each tagged `live` or `buffered`.
+
+The range selector keeps the last 60–720 readings, and **pause** stops the 2-second refresh.
+
+### Rejections, in the server's words
+
+A red card lists packets that carried this id and were refused, with what usually causes each:
+
+- `invalid signature` — the key baked into the node and the server's `HMAC_SECRET_KEY` differ, or a
+  number was printed differently than it was signed.
+- `stale timestamp` — the node's clock has not synced, or its backlog is older than 3 hours.
+- `replayed nonce` — a resend of something already stored. Harmless: the node consumes that sample
+  and moves on.
+- `unknown device` — nobody registered that id.
+
+An amber card below lists ids that are sending but unregistered, each with a **register this id**
+button, so a node that just arrived can be brought online from this page.
+
+### Registering a node (admin)
+
+Type a name and the exact `DEVICE_ID` from `firmware/coldchain_node/cc_config.h` — or run
+`python backend/simulator.py <id>` to feed the page without hardware. The reply shows the two MQTT
+topics that id uses: `coldchain/<id>/reading` in, `coldchain/<id>/command` back for its batch
+status. **Unregister this node** removes it and deletes its stored readings; batches stay, they just
+become unassigned.
+
+Nothing on this tab is estimated. If a number is on screen, a packet containing it passed the
+signature, timestamp-window and nonce checks.
+
+## 4. Dashboard
 
 One card per fridge, refreshed automatically every 4 seconds.
 
 - **Header line** — fridge name, then `device id · online` or `· offline`. *Offline* means no
   reading has arrived in the last 20 seconds; the temperature shown is the last one it received.
-- **Colour pill** — `Safe` (2–8 °C), `Warning` (above 8 or below 2), `Breach` (above 12, below 0,
-  or no reading at all). The coloured bar across the top of the card matches it.
-- **Big number** — current temperature, one decimal.
+- **Colour pill** — `Safe` (2–8 °C), `Warning` (above 8 or below 2), `Breach` (above 12 or below 0),
+  or `No data` for a fridge that has never reported. The coloured bar across the top matches it.
+- **Big number** — current temperature, one decimal, or `--.-` when there is no reading yet.
 - **Sparkline** — the last 40 readings. The dashed red line is the 8 °C limit, so a trace crossing
   it is visible at a glance.
 - **Four tiles** — Door (open/closed), power (Mains, or Battery % when mains has failed),
@@ -76,7 +125,7 @@ One card per fridge, refreshed automatically every 4 seconds.
 - **Heat budget per batch** — a bar per batch in that fridge, showing minutes remaining and its
   status pill. Empty list says `No batches in this fridge.`
 
-## 4. Inventory
+## 5. Inventory
 
 ### Add a batch
 
@@ -114,7 +163,7 @@ lit while that answer is `Discard`, and the first reading after a reset is answe
 Each row renders a QR code encoding `<site>/#/check/<code>`. **Open QR page** is the same link as
 text. Scanning it needs no app and no login.
 
-## 5. Public QR check
+## 6. Public QR check
 
 `https://your-site/#/check/VAX-001` opens a single card, no sign-in:
 
@@ -126,7 +175,7 @@ text. Scanning it needs no app and no login.
 An expired batch always reads **Discard**, whatever its temperature history. An unknown code shows
 `No batch with this code.`
 
-## 6. Audit log
+## 7. Audit log
 
 Admin and inspector only. The table shows `#`, `Event`, `Details`, `Hash` (first 12 characters;
 hover for the whole thing) and `Time` in your browser's local timezone. Rejections, alerts and
@@ -146,7 +195,7 @@ failed logins are printed in red.
 the previous row's hash, so editing or deleting one record breaks every link after it and the check
 points at the first broken one.
 
-## 7. Things that surprise people
+## 8. Things that surprise people
 
 - **A redeploy wipes the database.** The hosted disk is temporary, so after any deploy or rename you
   get two empty fridges and the two demo batches back, and the audit chain starts fresh.

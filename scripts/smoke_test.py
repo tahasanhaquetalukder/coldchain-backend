@@ -97,7 +97,41 @@ d = requests.get(f"{BASE}/api/dashboard", headers=H["admin"]).json()
 need = {"temperature", "status", "door_open", "power_ok", "compressor_on", "battery", "history", "batches", "online"}
 check("dashboard exposes temp/door/power/compressor/budget", d and need <= set(d[0]), f"missing {need - set(d[0])}")
 
-# 5. Inventory -- create, validate, move
+# 5. Live device view -- what the /live tab needs to follow a real node
+check("devices need a token", requests.get(f"{BASE}/api/devices").status_code in (401, 403))
+check("pharmacist cannot register a node", requests.post(f"{BASE}/api/devices",
+      json={"name": "x", "device_id": "smoke-node"}, headers=H["pharmacist"]).status_code == 403)
+node = requests.post(f"{BASE}/api/devices", json={"name": "Smoke node", "device_id": "smoke-node"},
+                     headers=H["admin"])
+check("admin registers a node and gets its topics back",
+      node.status_code == 201 and node.json().get("topic") == "coldchain/smoke-node/reading", node.text[:80])
+check("a duplicate id is refused", requests.post(f"{BASE}/api/devices", json={"name": "x",
+      "device_id": "smoke-node"}, headers=H["admin"]).status_code == 409)
+check("an id that cannot be a topic is refused", requests.post(f"{BASE}/api/devices",
+      json={"name": "x", "device_id": "bad id!"}, headers=H["admin"]).status_code == 422)
+check("a never-reported node has no temperature, not a default one",
+      next(d for d in requests.get(f"{BASE}/api/devices", headers=H["admin"]).json()["devices"]
+           if d["device_id"] == "smoke-node")["temperature"] is None)
+send("smoke-node", 6.5)
+rows = requests.get(f"{BASE}/api/readings", params={"device_id": "smoke-node"}, headers=H["admin"]).json()
+check("readings come back oldest first with arrival and buffer flags",
+      len(rows) == 1 and {"ts", "received_ts", "buffered", "temperature"} <= set(rows[0])
+      and abs(rows[0]["received_ts"] - time.time()) < 60, str(rows)[:120])
+send("smoke-node", 6.6, ts=time.time() - 4 * 3600, buffered=True)   # past the 3 h replay window
+live = next(d for d in requests.get(f"{BASE}/api/devices", headers=H["admin"]).json()["devices"]
+            if d["device_id"] == "smoke-node")
+check("rejections are counted and explained per device",
+      live["rejects"] >= 1 and "stale timestamp" in live["reasons"], str(live["reasons"]))
+check("an unregistered id is listed for the operator",
+      any(u["device_id"] == "fridge-99" for u in
+          requests.get(f"{BASE}/api/devices", headers=H["admin"]).json()["unknown"]))
+gone = requests.delete(f"{BASE}/api/devices/{live['id']}", headers=H["admin"])
+check("unregistering a node takes its readings with it",
+      gone.status_code == 200 and gone.json().get("readings_deleted") == 1
+      and not requests.get(f"{BASE}/api/readings", params={"device_id": "smoke-node"},
+                           headers=H["admin"]).json(), str(gone.text)[:80])
+
+# 6. Inventory -- create, validate, move
 check("pharmacist creates a batch", requests.post(f"{BASE}/api/batches",
       json={"code": code, "vaccine": "Insulin", "expiry": "2027-12-31", "fridge_id": 2},
       headers=H["pharmacist"]).status_code == 201)
@@ -110,12 +144,12 @@ bid = batch(code)["id"]
 check("batch moved between fridges", requests.put(f"{BASE}/api/batches/{bid}/move",
       json={"fridge_id": 1}, headers=H["pharmacist"]).status_code == 200)
 
-# 6. Public QR check -- no login
+# 7. Public QR check -- no login
 r = requests.get(f"{BASE}/api/public/batch/{code}")
 check("public status without login", r.status_code == 200 and {"status", "expiry", "expired"} <= set(r.json()), r.text[:120])
 check("unknown code -> 404", requests.get(f"{BASE}/api/public/batch/NO-SUCH").status_code == 404)
 
-# 7. Tamper-evident log
+# 8. Tamper-evident log
 v = requests.get(f"{BASE}/api/audits/verify", headers=H["admin"])
 check("chain verifies", v.json().get("valid") is True, v.text[:120])
 check("inspector may verify", requests.get(f"{BASE}/api/audits/verify", headers=H["inspector"]).status_code == 200)

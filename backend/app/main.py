@@ -1,7 +1,8 @@
 import os
+import re
 import time
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 import bcrypt
@@ -16,6 +17,19 @@ from sqlalchemy.orm import Session
 from . import audit, database, hmac_auth, models
 
 models.Base.metadata.create_all(bind=database.engine)
+
+
+def ensure_reading_columns():
+    """create_all builds a missing table but never alters an existing one, so a coldchain.db that
+    already holds readings would keep ingesting without the two columns the live view needs."""
+    with database.engine.begin() as conn:
+        have = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info(readings)")}
+        for column, decl in (("buffered", "BOOLEAN DEFAULT 0"), ("received_ts", "FLOAT DEFAULT 0")):
+            if column not in have:
+                conn.exec_driver_sql(f"ALTER TABLE readings ADD COLUMN {column} {decl}")
+
+
+ensure_reading_columns()
 
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me-jwt-secret")
 BUDGET = 60.0          # minutes above 8C per batch
@@ -214,7 +228,8 @@ def sensor(m: SensorMsg, db: Session = Depends(database.get_db)):
         f.door_alerted = True
         alert = f"{f.name} door has been open over {DOOR_LIMIT} seconds"
         audit.create_audit_log(db, "DOOR_ALERT", alert)
-    db.add(models.Reading(device_id=m.device_id, ts=m.ts, temperature=m.temperature, door_open=m.door_open))
+    db.add(models.Reading(device_id=m.device_id, ts=m.ts, temperature=m.temperature,
+                          door_open=m.door_open, buffered=m.buffered, received_ts=time.time()))
     db.commit()
     cleanup_old_nonces(db)
     if alert:
@@ -225,6 +240,14 @@ def sensor(m: SensorMsg, db: Session = Depends(database.get_db)):
 
 
 # ---------- dashboard & inventory ----------
+def report_state(f):
+    """A node that has never been heard of shows as unknown, not as the 5.0 the column defaults to.
+    A fridge you registered ten minutes ago is not a fridge that is safe."""
+    if not f.last_ts:
+        return None, None
+    return f.temperature, fridge_status(f.temperature)
+
+
 @app.get("/api/dashboard")
 def dashboard(_: dict = Depends(ANY), db: Session = Depends(database.get_db)):
     out = []
@@ -233,12 +256,122 @@ def dashboard(_: dict = Depends(ANY), db: Session = Depends(database.get_db)):
               for b in db.query(models.Batch).filter_by(fridge_id=f.id)]
         hist = (db.query(models.Reading).filter_by(device_id=f.device_id)
                 .order_by(models.Reading.ts.desc()).limit(40).all())
-        out.append({"id": f.id, "name": f.name, "device_id": f.device_id, "temperature": f.temperature,
-                    "status": fridge_status(f.temperature), "door_open": f.door_open, "power_ok": f.power_ok,
+        temperature, status = report_state(f)
+        out.append({"id": f.id, "name": f.name, "device_id": f.device_id, "temperature": temperature,
+                    "status": status, "door_open": f.door_open, "power_ok": f.power_ok,
                     "battery": f.battery, "compressor_on": f.compressor_on,
                     "door_alert": f.door_alerted, "online": time.time() - f.last_ts < 20,
                     "history": [r.temperature for r in reversed(hist)], "batches": bs})
     return out
+
+
+# ---------- live device view ----------
+DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
+REJECT_RE = re.compile(r"device=(\S+) reason=(.+?) nonce=(\S*)")
+
+
+class DeviceIn(BaseModel):
+    name: str
+    device_id: str
+
+
+def recent_rejects(db: Session, hours: int = 1):
+    """Rejections grouped by the device that sent them.
+
+    The audit log is the only place a rejected packet leaves a trace - nothing is stored on the
+    readings path - so this is what turns "the dashboard is not moving" into "the node signs with a
+    stale HMAC key" or "nobody registered fridge-3".
+    """
+    since = datetime.utcnow() - timedelta(hours=hours)
+    grouped = {}
+    for l in (db.query(models.AuditLog)
+              .filter(models.AuditLog.action == "MESSAGE_REJECTED", models.AuditLog.timestamp >= since)
+              .order_by(models.AuditLog.id).all()):
+        m = REJECT_RE.search(l.details or "")
+        if not m:
+            continue
+        device, reason = m.group(1), m.group(2)
+        g = grouped.setdefault(device, {"n": 0, "reasons": {}, "last": 0.0})
+        g["n"] += 1
+        g["reasons"][reason] = g["reasons"].get(reason, 0) + 1
+        g["last"] = l.timestamp.replace(tzinfo=timezone.utc).timestamp()
+    return grouped
+
+
+@app.get("/api/devices")
+def devices(_: dict = Depends(ANY), db: Session = Depends(database.get_db)):
+    now = time.time()
+    rejects = recent_rejects(db)
+    out = []
+    for f in db.query(models.Fridge).order_by(models.Fridge.id).all():
+        last = (db.query(models.Reading).filter_by(device_id=f.device_id)
+                .order_by(models.Reading.id.desc()).first())
+        temperature, status = report_state(f)
+        age = None if not f.last_ts else round(now - f.last_ts, 1)
+        drift = None if not (last and last.received_ts) else round(last.ts - last.received_ts, 1)
+        bad = rejects.pop(f.device_id, None)
+        out.append({
+            "id": f.id, "name": f.name, "device_id": f.device_id,
+            "topic": f"coldchain/{f.device_id}/reading",
+            "temperature": temperature, "status": status,
+            "door_open": f.door_open, "power_ok": f.power_ok, "battery": f.battery,
+            "compressor_on": f.compressor_on, "door_alert": f.door_alerted,
+            "last_ts": f.last_ts, "age_s": age,
+            "readings": db.query(models.Reading).filter_by(device_id=f.device_id).count(),
+            # 'replaying' is the offline buffer arriving: the node was dark and is emptying its queue
+            "replaying": bool(last and last.buffered),
+            "drift_s": drift,
+            "online": age is not None and age < 20,
+            "rejects": bad["n"] if bad else 0,
+            "reasons": bad["reasons"] if bad else {},
+        })
+    return {"devices": out, "unknown": [{"device_id": d, **g} for d, g in rejects.items()]}
+
+
+@app.post("/api/devices", status_code=201)
+def add_device(d: DeviceIn, u=Depends(roles("admin")), db: Session = Depends(database.get_db)):
+    device_id, name = d.device_id.strip(), d.name.strip()
+    if not DEVICE_ID_RE.match(device_id):
+        raise HTTPException(422, "A device id is 1-32 letters, digits, dot, dash or underscore - "
+                                 "exactly what you wrote in cc_config.h")
+    if not name or len(name) > 40:
+        raise HTTPException(422, "Give the node a name of 1-40 characters")
+    if db.query(models.Fridge).filter_by(device_id=device_id).first():
+        raise HTTPException(409, f"{device_id} is already registered")
+    f = models.Fridge(name=name, device_id=device_id, temperature=None)
+    db.add(f)
+    db.commit()
+    audit.create_audit_log(db, "DEVICE_ADDED", f"{device_id} ({name}) by {u['sub']}")
+    return {"id": f.id, "device_id": device_id, "topic": f"coldchain/{device_id}/reading",
+            "command_topic": f"coldchain/{device_id}/command"}
+
+
+@app.delete("/api/devices/{fid}")
+def remove_device(fid: int, u=Depends(roles("admin")), db: Session = Depends(database.get_db)):
+    f = db.get(models.Fridge, fid)
+    if not f:
+        raise HTTPException(404, "No device with that id")
+    dropped = db.query(models.Reading).filter_by(device_id=f.device_id).delete(synchronize_session=False)
+    # batches outlive the node that stored them; only their location becomes unknown
+    db.query(models.Batch).filter_by(fridge_id=f.id).update({"fridge_id": None})
+    device_id, name = f.device_id, f.name
+    db.delete(f)
+    db.commit()
+    audit.create_audit_log(db, "DEVICE_REMOVED",
+                           f"{device_id} ({name}) and {dropped} readings deleted by {u['sub']}")
+    return {"status": "ok", "device_id": device_id, "readings_deleted": dropped}
+
+
+@app.get("/api/readings")
+def readings(device_id: str, limit: int = 150, _: dict = Depends(ANY),
+             db: Session = Depends(database.get_db)):
+    """The last `limit` accepted readings for one node, oldest first - the trace the live view draws."""
+    limit = max(1, min(limit, 600))
+    rows = (db.query(models.Reading).filter_by(device_id=device_id)
+            .order_by(models.Reading.id.desc()).limit(limit).all())
+    return [{"id": r.id, "ts": r.ts, "temperature": r.temperature, "door_open": bool(r.door_open),
+             "buffered": bool(r.buffered), "received_ts": r.received_ts or None}
+            for r in reversed(rows)]
 
 
 class BatchIn(BaseModel):

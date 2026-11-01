@@ -70,6 +70,8 @@ Permissions are enforced on the server, not just hidden in the UI.
 | --- | --- |
 | JWT + bcrypt, three roles, server-side enforcement | `backend/app/main.py` — `login()`, `roles()` dependency |
 | Live dashboard: temp, door, power, compressor, budget | `GET /api/dashboard`, polled every 4 s by `frontend/src/App.jsx` |
+| Live node view: freshness, replay, clock drift, rejections | `GET /api/devices`, `GET /api/readings`, the **Live** tab |
+| Register a node without touching the database | `POST/DELETE /api/devices` (admin), same tab |
 | Inventory: manage batches, assign/move between fridges | `GET/POST /api/batches`, `PUT /api/batches/{id}/move` |
 | Public QR check without login | `GET /api/public/batch/{code}` → `http://localhost:5173/#/check/VAX-001` |
 | HMAC-SHA256 + timestamp + nonce, reject and log | `backend/app/hmac_auth.py`, `POST /api/sensor`, `MESSAGE_REJECTED` audit rows |
@@ -98,6 +100,29 @@ A door left open past 60 s is logged as `DOOR_ALERT` once (it does not re-alert 
 open) and, when `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` are set, pushed to Telegram after the
 database commit so a slow network cannot delay the reading that triggered it.
 
+### The Live tab: what a real node looks like
+
+The dashboard answers "is this fridge safe". The **Live** tab answers "is this device actually
+talking, and if not, why" — which is the only question while a node is being brought up.
+
+| What it shows | Where it comes from |
+| --- | --- |
+| `live 3s` / `stale 40s` / `offline 12m` / `never reported` | `age_s` — seconds since the last **accepted** reading |
+| `emptying buffer` | the newest accepted row carries `buffered: true`, i.e. the node is replaying its queue |
+| `node clock is -0.7s against the server` | signed `ts` minus the server's arrival time, per reading (`readings.received_ts`) |
+| the trace, with replayed points marked | `GET /api/readings?device_id=…&limit=…`, oldest first |
+| `4 packets rejected in the last hour — 2 × replayed nonce …` | `MESSAGE_REJECTED` audit rows grouped by device, each reason explained |
+| `fridge-9 — 1 rejected, latest unknown device` | packets for an id nobody registered, with a one-click register |
+| MQTT topics for the node | `coldchain/<device_id>/reading` in, `/command` back out |
+
+Register the node from the page (admin): the `DEVICE_ID` in `firmware/coldchain_node/cc_config.h`
+must match the id exactly, or every packet is refused as `unknown device` and the node keeps
+buffering. An id is 1–32 characters of `A-Z a-z 0-9 . _ -` because it becomes an MQTT topic.
+
+A device that has never reported shows `--.-` and `No data`, not the 5.0 °C the column defaults to.
+Nothing on this tab is inferred: every number is a packet that passed signature, window and nonce
+checks, and the rejections sit beside it so an absent trace is explainable rather than mysterious.
+
 ## Verify it works
 
 ```bash
@@ -109,8 +134,9 @@ set PYTHONPATH=../backend                # macOS/Linux: export PYTHONPATH=../bac
 ../backend/venv/Scripts/python.exe ../scripts/smoke_test.py --db coldchain.db
 ```
 
-27 checks cover login and role enforcement, signed ingest, forged/stale/replayed rejection,
-double-weighted budget accrual, inventory validation, the public page and tamper detection.
+37 checks cover login and role enforcement, signed ingest, forged/stale/replayed rejection, the live
+device endpoints (register, per-device rejections, arrival times, unregister), double-weighted budget
+accrual, inventory validation, the public page and tamper detection.
 
 ## Publish on Render (free tier)
 

@@ -36,9 +36,11 @@ class Reading(Base):
     __tablename__ = "readings"
     id = Column(Integer, primary_key=True)
     device_id = Column(String, index=True)
-    ts = Column(Float, index=True)
+    ts = Column(Float, index=True)             # the device's own clock - the signed one
     temperature = Column(Float)
     door_open = Column(Boolean)
+    buffered = Column(Boolean, default=False)  # replayed from the node's offline buffer, not live
+    received_ts = Column(Float, default=0.0)   # server arrival: age and clock drift stay separable
 
 class Nonce(Base):
     __tablename__ = "nonces"
