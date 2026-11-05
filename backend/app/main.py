@@ -17,7 +17,7 @@ from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from . import audit, database, hmac_auth, models
-from .ai import compressor as ai_health, predict as ai_predict
+from .ai import compressor as ai_health, predict as ai_predict, relocation as ai_rel
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -61,8 +61,34 @@ LIVE_SKEW = 60         # seconds allowed for live messages
 BUFFER_WINDOW = 3 * 3600
 DOOR_LIMIT = 60        # seconds
 NONCE_TTL = 86400      # replay protection window to keep
+ONLINE_AGE_S = 20      # a node quieter than this is a node nobody can vouch for (the Live tab and the
+                       # relocation rules both have to answer 'is it online' with the same number)
 
 DEMO_SECRETS = {"JWT_SECRET": "CHANGE_ME_JWT_SECRET", "HMAC_SECRET_KEY": "CHANGE_ME_FLEET_KEY"}
+
+
+def read_capacity() -> int:
+    """How many batches a fridge is assumed to be able to hold - the only capacity number relocation has.
+
+    Nothing in the database says how big a fridge is, so this is one value the site declares rather than
+    a column that would drift from what the ward actually stores. A bad value is refused at import: with
+    "six" or 0 the rules would either crash on every request or tell the pharmacist that every fridge is
+    full, and both are quieter than a server that says it cannot read its own config.
+    """
+    raw = os.getenv("MAX_BATCHES_PER_FRIDGE", "").strip()
+    if not raw:
+        return 6
+    try:
+        value = int(raw)
+    except ValueError:
+        raise RuntimeError(f"MAX_BATCHES_PER_FRIDGE must be a whole number of batches, not {raw!r}")
+    if value < 1:
+        raise RuntimeError("MAX_BATCHES_PER_FRIDGE must be at least 1: a fridge that holds no batches "
+                           "cannot be a destination for anything")
+    return value
+
+
+MAX_BATCHES_PER_FRIDGE = read_capacity()
 
 
 def refuse_insecure_start():
@@ -450,6 +476,141 @@ def ai_compressor(device_id: Optional[str] = None, _: dict = Depends(ANY),
     return {"count": len(fridges), "fridges": fridges}
 
 
+# ---------- Task 5 phase 4: relocation ----------
+def relocation_states(db: Session, now: float):
+    """One dict per fridge, in the shape app.ai.relocation reads.
+
+    The forecast is asked with `episode=False`: two pharmacists refreshing the Insights page must not
+    spend the one breach warning this heat wave is allowed to raise. That warning belongs to the ingest
+    path (`ai_evaluate`), which runs on the reading that caused it.
+
+    This is the expensive half of the route - a forecast plus up to five days of cycles per fridge, on
+    every request - and it is still done fresh, because a stale suggestion is a wrong suggestion.
+    """
+    states = []
+    for f in db.query(models.Fridge).order_by(models.Fridge.id).all():
+        fc = ai_predict.forecast(ai_rows(db, f.device_id, now - AI_LOOKBACK_S),
+                                 device_id=f.device_id, episode=False)
+        health = ai_health.score(compressor_rows(db, f.device_id)[0], device_id=f.device_id)
+        temperature, _ = report_state(f)
+        states.append({
+            "id": f.id, "device_id": f.device_id, "name": f.name,
+            "online": bool(f.last_ts) and now - f.last_ts < ONLINE_AGE_S,
+            "power_ok": f.power_ok, "door_open": f.door_open, "temperature": temperature,
+            "risk": fc.get("risk"), "max_next_30_c": fc.get("max_next_30_c"),
+            "lead_min_est": fc.get("lead_min_est"),
+            "score": health.get("score"), "band": health.get("band"),
+            "batches": [{"id": b.id, "code": b.code, "vaccine": b.vaccine, "expiry": b.expiry,
+                         **batch_state(b)}
+                        for b in db.query(models.Batch).filter_by(fridge_id=f.id).all()],
+        })
+    return states
+
+
+def relocation_plan(db: Session, now: Optional[float] = None):
+    """The suggestion set, recomputed. Both routes call this, and the confirm route throws the answer
+    away if it disagrees with what the browser was shown."""
+    return ai_rel.suggest(relocation_states(db, now or time.time()),
+                          capacity=MAX_BATCHES_PER_FRIDGE, now=now or time.time())
+
+
+@app.get("/api/ai/relocations")
+def ai_relocations(_: dict = Depends(ANY), db: Session = Depends(database.get_db)):
+    """Any logged-in role may read: the inspector reads the ward too, and a suggestion nobody can see
+    is a suggestion nobody can argue with before it is acted on."""
+    return relocation_plan(db)
+
+
+class RelocationConfirm(BaseModel):
+    batch_id: int
+    to_fridge_id: int
+    suggestion_id: str
+
+
+def confirmation_record(db: Session, batch_id: int, to_fridge_id: int):
+    """The newest RELOCATION_CONFIRMED that put this batch in that fridge, or None.
+
+    That is the whole idempotency store: the audit chain already recorded who moved what and when, so a
+    second click can be answered from it instead of from a second table that could disagree with it.
+    """
+    for l in (db.query(models.AuditLog).filter_by(action="RELOCATION_CONFIRMED")
+              .order_by(models.AuditLog.id.desc()).limit(500).all()):
+        d = l.details or ""
+        if f"batch={batch_id} " in d and f"to_fridge={to_fridge_id} " in d:
+            return l
+    return None
+
+
+def confirm_from_fridge(details: str):
+    m = re.search(r"from_fridge=(\d+) ", details or "")
+    return int(m.group(1)) if m else None
+
+
+def conflict_message(plan, batch_id: int, to_fridge_id: int):
+    """Why the fresh plan no longer offers exactly this move, or None while it still does.
+
+    The client never gets to decide: 'the page said Fridge C' is not an argument with a fridge that has
+    since gone off mains. Every branch answers with what the numbers say now, not with 'stale request'.
+    """
+    for s in plan["suggestions"]:
+        if s["batch_id"] == batch_id:
+            if s["to_fridge_id"] == to_fridge_id:
+                return None
+            return f"that is no longer the recommended move. {s['reason']}"
+    for u in plan["unplaced"]:
+        if u["batch_id"] == batch_id:
+            return f"the numbers have changed and this move is off the list. {u['why']}"
+    return ("the numbers have changed and nothing is recommended for this batch any more: it is not in "
+            "a fridge that is flagged as at risk")
+
+
+@app.post("/api/ai/relocations/confirm")
+def ai_relocation_confirm(d: RelocationConfirm, u=Depends(roles("admin", "pharmacist")),
+                          db: Session = Depends(database.get_db)):
+    """Press the button. The server recomputes everything and only then moves the batch.
+
+    Inspector gets 403 from the same `roles()` dependency the rest of the write routes use. A second
+    click on a move that already happened returns that move instead of doing it twice.
+    """
+    b = db.get(models.Batch, d.batch_id)
+    if not b:
+        raise HTTPException(404, "Batch not found")
+    dst = db.get(models.Fridge, d.to_fridge_id)
+    if not dst:
+        raise HTTPException(404, "No fridge with that id")
+    if b.fridge_id == d.to_fridge_id:
+        row = confirmation_record(db, b.id, d.to_fridge_id)
+        return {"status": "ok", "already_confirmed": True, "batch_id": b.id, "batch_code": b.code,
+                "from_fridge_id": confirm_from_fridge(row.details if row else ""),
+                "to_fridge_id": dst.id, "to_fridge_name": dst.name,
+                "audit_id": row.id if row else None,
+                "reason": f"{b.code} is already in {dst.name}; this click moved nothing"}
+
+    now = time.time()
+    plan = relocation_plan(db, now)
+    conflict = conflict_message(plan, d.batch_id, d.to_fridge_id)
+    if conflict:
+        raise HTTPException(409, conflict)
+    suggestion = next(s for s in plan["suggestions"]
+                      if s["batch_id"] == d.batch_id and s["to_fridge_id"] == d.to_fridge_id)
+    if not ai_rel.suggestion_is_current(d.batch_id, suggestion["from_fridge_id"], d.to_fridge_id,
+                                        d.suggestion_id, now):
+        raise HTTPException(409, f"that suggestion has expired (they are good for "
+                                f"{ai_rel.SUGGESTION_TTL_S // 60} minutes and the numbers move under "
+                                f"them). The current recommendation is: {suggestion['reason']}")
+
+    old = b.fridge_id
+    # the same code PUT /api/batches/{id}/move runs, so the heat budget rules cannot diverge from it
+    move(b.id, MoveIn(fridge_id=d.to_fridge_id), u, db)
+    row = audit.create_audit_log(
+        db, "RELOCATION_CONFIRMED",
+        f"batch={b.id} code={b.code} from_fridge={old} to_fridge={dst.id} "
+        f"suggestion={d.suggestion_id} by={u['sub']} ({suggestion['reason']})")
+    return {"status": "ok", "already_confirmed": False, "batch_id": b.id, "batch_code": b.code,
+            "from_fridge_id": old, "to_fridge_id": dst.id, "to_fridge_name": dst.name,
+            "audit_id": row.id, "reason": suggestion["reason"]}
+
+
 # ---------- dashboard & inventory ----------
 def report_state(f):
     """A node that has never been heard of shows as unknown, not as the 5.0 the column defaults to.
@@ -535,7 +696,7 @@ def devices(_: dict = Depends(ANY), db: Session = Depends(database.get_db)):
             # 'replaying' is the offline buffer arriving: the node was dark and is emptying its queue
             "replaying": bool(last and last.buffered),
             "drift_s": drift,
-            "online": age is not None and age < 20,
+            "online": age is not None and age < ONLINE_AGE_S,
             # which secret this node is expected to sign with; the key itself never leaves the server
             "own_key": bool(f.hmac_key),
             "rejects": bad["n"] if bad else 0,

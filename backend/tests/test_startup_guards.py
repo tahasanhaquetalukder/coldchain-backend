@@ -15,7 +15,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 # testing the fixture rather than the environment it claims to set up.
 NOT_INHERITED = {"ENV", "DATABASE_URL", "AUDIT_ANCHOR", "JWT_SECRET", "HMAC_SECRET_KEY", "CORS_ORIGINS",
                  "SEED_ADMIN_PASSWORD", "SEED_PHARMACIST_PASSWORD", "SEED_INSPECTOR_PASSWORD",
-                 "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"}
+                 "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "MAX_BATCHES_PER_FRIDGE"}
 
 
 def run(code, env):

@@ -17,6 +17,9 @@ THRESHOLD_C = F.THRESHOLD_C
 MAX_SLOPE_C_PER_MIN = 0.35     # a fridge does not move faster than this; noise must not become a trend
 FALLBACK_BOUNDS_C = (-5.0, 30.0)
 BREACH_COOLDOWN_S = 30 * 60    # never two rows for the same device inside half an hour
+RISK_WATCH_MARGIN_C = 0.5      # one model error: ml/results.json measures the peak head's MAE at about
+                               # 0.34 C, so a prediction inside this band of the line is not a promise
+                               # that the box stays under it
 _BREACH_SEEN = {}              # device_id -> {"raised": bool, "raised_ts": float}
 
 _cache = {"path": None, "mtime": None, "model": None, "reason": ""}
@@ -97,6 +100,22 @@ def _clamp(value, lo, hi):
     return max(lo, min(hi, value))
 
 
+def risk_of(peak_c):
+    """low / watch / high for a fridge whose next-30-minute peak is `peak_c`.
+
+    The three levels exist because a pharmacist and a relocation rule want different things from one
+    number: the page needs a badge that says "look at this", and the rules need a fridge that is safe to
+    move stock INTO - which is why a destination must be `low` and not merely `not high`. `watch` is the
+    band within one model error of the line, where the forecast has not promised a breach but cannot
+    promise against one either.
+    """
+    if peak_c > THRESHOLD_C:
+        return "high"
+    if peak_c > THRESHOLD_C - RISK_WATCH_MARGIN_C:
+        return "watch"
+    return "low"
+
+
 def _episode(device_id, now_ts, at_risk, predicted_peak):
     """True once per breach episode, and never twice inside the cooldown.
 
@@ -145,19 +164,24 @@ def explain(f, forecast_c, peak_c):
     return out
 
 
-def forecast(rows, device_id="unknown", now_ts=None):
+def forecast(rows, device_id="unknown", now_ts=None, episode=True):
     """The forecast for one node from its own readings.
 
     `rows` is (ts, temperature, compressor_on, door_open, power_ok) in any order - what /api/ai/*
     selects straight out of the table, because /api/readings caps at 600 rows and a five-second node
     only covers fifty minutes of history there.
+
+    `episode=False` asks the same question without answering it twice. Raising a breach warning is a
+    real event that spends the cooldown, so the routes that only want to know - the relocation rules,
+    a page that is refreshing a badge - pass False and get the numbers with `breach_warning_raised`
+    permanently False. Whoever does want to raise it passes True.
     """
     series = F.resample(rows)
     newest = series[-1]["ts"] if series else None
     now_ts = now_ts if now_ts is not None else (newest or time.time())
     f = F.features(series)
     base = {"device_id": device_id, "horizon_min": HORIZON_MIN, "threshold_c": THRESHOLD_C,
-            "now_ts": newest, "model": "fallback", "reasons": [], "warnings": []}
+            "now_ts": newest, "model": "fallback", "reasons": [], "warnings": [], "risk": None}
     if f is None:
         run = F.run_length(series, len(series) - 1) if series else 0
         base.update(state="not enough data", minutes_of_history=run, minutes_needed=F.MIN_HISTORY_MIN,
@@ -203,11 +227,12 @@ def forecast(rows, device_id="unknown", now_ts=None):
         lead = 0
     base.update(state="forecast", minutes_of_history=int(f["history_min"]), now_c=round(temp_now, 2),
                 forecast_c=round(forecast_c, 2), max_next_30_c=round(peak_c, 2), breach=breach,
-                lead_min_est=lead,
+                risk=risk_of(peak_c), lead_min_est=lead,
                 history=[{"ts": s["ts"], "c": round(s["temp"], 2)} for s in series[-60:]],
                 projection=[{"ts": now_ts if newest is None else newest + step * 60,
                              "c": round(temp_now + (forecast_c - temp_now) * step / HORIZON_MIN, 2)}
                             for step in range(5, HORIZON_MIN + 1, 5)],
                 reasons=explain(f, forecast_c, peak_c))
-    base["breach_warning_raised"] = _episode(device_id, now_ts, breach, peak_c)
+    # a read-only caller must not be able to spend the episode: the warning belongs to whoever raises it
+    base["breach_warning_raised"] = bool(episode) and _episode(device_id, now_ts, breach, peak_c)
     return base

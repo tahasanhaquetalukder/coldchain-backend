@@ -78,6 +78,7 @@ values, which is the other way round from what a stray export would give you.
 | `CORS_ORIGINS` | unset | comma-separated origins. Empty in dev means `*`; production must name them |
 | `SEED_ADMIN_PASSWORD`<br>`SEED_PHARMACIST_PASSWORD`<br>`SEED_INSPECTOR_PASSWORD` | `<role>123` outside production | the seeded logins. Required in production, and only applied while the `users` table is empty |
 | `AUDIT_ANCHOR` | `audit_anchor.log` | append-only head-anchor file; keep it off the database disk so a deleted row is still detectable |
+| `MAX_BATCHES_PER_FRIDGE` | `6` | how many vaccine batches one fridge is assumed to hold. The only capacity figure the relocation rules have — nothing in the database describes the size of a box, so this is a number the operator sets per ward and the server applies to every node. A value that is not a whole number ≥ 1 stops the server from booting |
 | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | unset | door-alert push. With either missing the alert is still logged and nothing is sent |
 | `API_BASE` | `http://127.0.0.1:8000` | where `simulator.py` and `mqtt_bridge.py` post |
 | `MQTT_HOST` / `MQTT_PORT` | `127.0.0.1` / `1883` | the broker the bridge subscribes to |
@@ -85,8 +86,8 @@ values, which is the other way round from what a stray export would give you.
 | `MQTT_TLS` | `0` | `1` makes the bridge connect over TLS, which is what a hosted broker requires |
 | `VITE_API_BASE` | dev only: `http://127.0.0.1:8000` | the API the built web app calls. Put it in `frontend/.env.local` (or the host's env panel), never in `backend/.env` |
 
-`ENV`, `DATABASE_URL`, `AUDIT_ANCHOR` and the secrets are read at **import** time, so a `.env` change
-needs a restart, not just a reload of the page.
+`ENV`, `DATABASE_URL`, `AUDIT_ANCHOR`, `MAX_BATCHES_PER_FRIDGE` and the secrets are read at **import**
+time, so a `.env` change needs a restart, not just a reload of the page.
 
 ### If the fridges talk MQTT
 
@@ -174,6 +175,21 @@ Permissions are enforced on the server, not just hidden in the UI.
 | Public QR check without login | `GET /api/public/batch/{code}` → `http://localhost:5173/#/check/VAX-001` |
 | HMAC-SHA256 + timestamp + nonce, reject and log | `backend/app/hmac_auth.py`, `POST /api/sensor`, `MESSAGE_REJECTED` audit rows |
 | Hash chain + Verify Integrity | `backend/app/audit.py` — `create_audit_log()`, `verify_chain()`, `GET /api/audits/verify`, `frontend/src/pages/Audit.jsx` |
+
+## Task 5 → where it lives
+
+| Requirement | Implementation |
+| --- | --- |
+| Features from a raw trace (minute grid, both flag kinds) | `backend/app/ai/features.py` |
+| 30-minute forecast + breach warning, stdlib model serving | `backend/app/ai/predict.py`, `backend/app/ai/model.json` → `GET /api/ai/forecast` |
+| Compressor health score 0–100 with reasons | `backend/app/ai/compressor.py` → `GET /api/ai/compressor` |
+| Relocation suggestions from explainable rules | `backend/app/ai/relocation.py` → `GET /api/ai/relocations` |
+| One-click confirm, recomputed server-side | `POST /api/ai/relocations/confirm` (admin + pharmacist), `RELOCATION_CONFIRMED` audit rows |
+| Simulated training data, training, metrics, report | `ml/generate_data.py`, `ml/train.py`, `ml/evaluate.py`, `ml/make_report.py` → `docs/task5_report.md` |
+
+The rules read `MAX_BATCHES_PER_FRIDGE` as their capacity assumption and the forecast's `risk`
+(`low` / `watch` / `high`) as their safety signal; both are explained in
+[`docs/task5_report.md`](docs/task5_report.md).
 
 ### Heat-exposure budget
 
