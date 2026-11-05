@@ -215,7 +215,10 @@ def main():
             f"ml/.venv/Scripts/python.exe ml/generate_data.py --seed {model['seed']}",
             "ml/.venv/Scripts/python.exe ml/train.py",
             "ml/.venv/Scripts/python.exe ml/evaluate.py",
-            "ml/.venv/Scripts/python.exe ml/make_report.py",
+            "ml/.venv/Scripts/python.exe ml/make_report.py", "",
+            "# then, to watch all three answers on a running backend - no hardware, no new training:",
+            "$env:DEMO_PASSWORD = 'admin123'",
+            "backend/venv/Scripts/python.exe backend/scripts/demo_task5.py",
             "```", "",
             "The backend needs none of it: `cd backend && venv\\Scripts\\python.exe -m pytest -q` tests the served "
             "model against fixtures, and `cd frontend && npm run build` builds the Insights page that reads those "

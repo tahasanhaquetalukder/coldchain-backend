@@ -39,6 +39,43 @@ score forward through every stream six hours at a time: the number `GET /api/ai/
 checked on the same simulated wear curve as the forecast, and on the streams that were never given a
 fault, to see how often it calls a healthy machine weak.
 
+## The live demo, with the committed model
+
+`backend/scripts/demo_task5.py` needs no training run and no hardware - it uses the `model.json` that
+is already in the repo. Start the API, then from the repository root:
+
+```powershell
+$env:DEMO_PASSWORD = "admin123"        # the seeded demo admin; required, and never printed
+backend/venv/Scripts/python.exe backend/scripts/demo_task5.py
+
+# against a deployed backend, and against another admin on that backend
+$env:API_BASE = "https://your-api-host.onrender.com"; $env:DEMO_USERNAME = "admin"
+backend/venv/Scripts/python.exe backend/scripts/demo_task5.py
+```
+
+It registers `demo-warm-1` and `demo-cold-1`, puts `DEMO-A01` and `DEMO-A02` in the warm one and posts
+about 155 signed readings per node - oldest first, `buffered=true`, the way a node that lost its Wi-Fi
+empties its queue. The warm fridge cools normally for four compressor cycles, then slowly for three,
+then stops cutting in and creeps up to about 7.6 °C; the cold one keeps cycling and stops mid-pull so it
+qualifies as a destination. It then prints what the three routes answer for those two nodes, which is
+the demo: a forecast that says the warm box crosses 8 °C inside the horizon, a health score that has
+fallen on it with the reason, and the moves the rules suggest.
+
+Two things to know before a judge sees it:
+
+- **Run it, then look at the page immediately.** The online rule is 20 seconds and the script stops
+  feeding when it is done, so a fridge left alone for a minute is honestly reported as offline and the
+  relocation rules refuse to move stock into a fridge nobody can vouch for. Run the script again to
+  refresh it; that is what it is for.
+- **The readings are a scenario**, the same kind `ml/generate_data.py` writes, not a fridge. The
+  forecast and the score are the real code on the real ingest path, but the failure they are catching
+  was authored for the demo.
+
+It is safe to run repeatedly: it appends the minutes a node is missing, anchored to the current clock,
+rather than trying to re-write history the ingest has already accepted (anything at or before a node's
+newest stored timestamp is ignored). It never confirms a move - pressing that button as pharmacist is
+the point of the exercise.
+
 ## Committed and ignored
 
 `ml/data/*.csv` is generated, so it is ignored - except `ml/data/sample.csv`, 500 rows, committed

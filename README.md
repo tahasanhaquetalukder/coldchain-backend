@@ -186,10 +186,35 @@ Permissions are enforced on the server, not just hidden in the UI.
 | Relocation suggestions from explainable rules | `backend/app/ai/relocation.py` → `GET /api/ai/relocations` |
 | One-click confirm, recomputed server-side | `POST /api/ai/relocations/confirm` (admin + pharmacist), `RELOCATION_CONFIRMED` audit rows |
 | Simulated training data, training, metrics, report | `ml/generate_data.py`, `ml/train.py`, `ml/evaluate.py`, `ml/make_report.py` → `docs/task5_report.md` |
+| Repeatable live demo of all three answers | `backend/scripts/demo_task5.py` |
 
 The rules read `MAX_BATCHES_PER_FRIDGE` as their capacity assumption and the forecast's `risk`
 (`low` / `watch` / `high`) as their safety signal; both are explained in
 [`docs/task5_report.md`](docs/task5_report.md).
+
+### Running the AI demo
+
+With the API up, one command leaves a fridge that is predicted to breach, a compressor score that has
+fallen on it, and a move waiting to be confirmed — no training run, no real hardware, no waiting:
+
+```powershell
+$env:DEMO_PASSWORD = "admin123"        # the seeded demo admin; the script refuses to run without it
+backend\venv\Scripts\python.exe backend\scripts\demo_task5.py
+```
+
+It registers two nodes (`demo-warm-1`, `demo-cold-1`), puts two batches in the warm one and posts ~155
+signed readings per node, oldest first, as a buffer emptying: the warm fridge cools normally for four
+compressor cycles, then slowly for three, then stops cutting in and creeps to 7.6 °C. Its own key is
+used for the signing (`app/hmac_auth.py`, the same path `simulator.py` uses), so it is the real ingest
+path, not a shortcut into the database.
+
+Then open the web app as **pharmacist** or **admin**, AI Insights tab, and press **Confirm move**.
+Signed in as **inspector** the same list is read-only, and a stale or forged `suggestion_id` is refused
+with `409`. Run the script as often as you like: it appends the minutes a node is missing instead of
+trying to re-write history the ingest has already seen, and it never confirms a move for you.
+
+`API_BASE` points it at a deployed backend; `DEMO_USERNAME` at another admin. Full output
+explanation in [`ml/README.md`](ml/README.md).
 
 ### Heat-exposure budget
 
