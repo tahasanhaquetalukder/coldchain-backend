@@ -1,0 +1,4 @@
+{
+  "trained": false,
+  "note": "Placeholder committed so the path exists on Render. Replaced by ml/train.py output; predict.py treats trained=false as model=fallback and never invents numbers."
+}

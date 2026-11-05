@@ -17,3 +17,9 @@ coldchain.db
 *.pre-task4.bak
 # the node's own config: Wi-Fi password and HMAC key. cc_config.example.h is the tracked template
 firmware/coldchain_node/cc_config.h
+# Task 5: generated training CSVs stay on the laptop; the 500-row sample is the committed exception
+ml/data/*.csv
+!ml/data/sample.csv
+# named .venv, so the `venv/` line above does not cover it
+ml/.venv/
+ml/__pycache__/

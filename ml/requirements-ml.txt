@@ -1,0 +1,9 @@
+# Task 5 training libraries. NOT installed in backend/venv and NOT imported by the server.
+# Render builds backend/requirements.txt only; nothing here ever reaches the deployed image.
+# Create the separate environment once:  python -m venv ml/.venv
+#   ml/.venv/Scripts/python.exe -m pip install -r ml/requirements-ml.txt
+# Versions are the ones the model in backend/app/ai/model.json was actually produced with.
+numpy==2.5.4
+pandas==3.1.1
+scikit-learn==1.9.1
+matplotlib==3.11.2
