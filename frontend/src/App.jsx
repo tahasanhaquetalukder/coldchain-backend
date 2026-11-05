@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Boxes, Cpu, LayoutDashboard, LogOut, Moon, ScrollText, Snowflake, Sun } from 'lucide-react';
+import { Boxes, Cpu, LayoutDashboard, LogOut, Moon, ScrollText, Snowflake, Sparkles, Sun } from 'lucide-react';
 import { API_BASE } from './api.js';
 import { AuthProvider, useAuth } from './auth.jsx';
 import { Loading } from './components/States.jsx';
@@ -9,10 +9,11 @@ import Login from './pages/Login.jsx';
 import PublicCheck from './pages/PublicCheck.jsx';
 
 // The tabs a signed-in person gets. Nothing else is reachable by typing a hash, because a route
-// only becomes a page when it matches one of these four paths.
+// only becomes a page when it matches one of the paths in this list.
 const TABS = [
   { path: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, show: () => true },
   { path: 'inventory', label: 'Inventory', icon: Boxes, show: () => true },
+  { path: 'insights', label: 'AI Insights', icon: Sparkles, show: () => true },
   { path: 'devices', label: 'Devices', icon: Cpu, show: () => true },
   { path: 'audit', label: 'Audit trail', icon: ScrollText, show: (auth) => auth.canReadAudit },
 ];
@@ -22,6 +23,7 @@ const TABS = [
 const PAGES = {
   dashboard: lazy(() => import('./pages/Dashboard.jsx')),
   inventory: lazy(() => import('./pages/Inventory.jsx')),
+  insights: lazy(() => import('./pages/Insights.jsx')),
   devices: lazy(() => import('./pages/Devices.jsx')),
   audit: lazy(() => import('./pages/Audit.jsx')),
 };
