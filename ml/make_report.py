@@ -165,6 +165,18 @@ def main():
             f"({health['per_scenario']['normal']['points_in_weak_band']} of "
             f"{health['per_scenario']['normal']['rolling_points']} points). The page shows the number with its "
             "reason lines, so an operator can disagree with it.", "",
+            "All six scenarios, because the one that does not move is the finding: " + "; ".join(
+                f"`{name}` {p['start_score']} → {p['end_score']} with {p['points_in_weak_band']} of "
+                f"{p['rolling_points']} rolling points in the weak band"
+                for name, p in sorted(health["per_scenario"].items())) + ". `compressor_failure` is the "
+            "generator's dead-relay stream, in which the compressor is commanded OFF for a few hours a day "
+            "while the supply reads fine - and a unit that never runs produces no cooling cycles at all, so "
+            "the score is measured on the healthy stretches between the failures and stays high. That is not "
+            "the score failing quietly: the same stream is the one the forecast was trained to catch "
+            f"({episodes['compressor_failure']['detected']} of {episodes['compressor_failure']['episodes']} "
+            "episodes, "
+            f"{episodes['compressor_failure']['mean_lead_min']} min mean lead), it is the reason the page "
+            "shows a health number and a risk badge rather than one of the two.", "",
             "### The served code against the library that trained it", ""]
     out += table(["head", "windows walked", "largest stdlib minus sklearn gap °C",
                   f"windows over {walk[0]['tolerance_c']} °C", "test RMSE gap °C"],

@@ -64,6 +64,8 @@ backend/app/ai/compressor.py score(), re-run on the rows up to each cut, one cut
 
 On the stream whose pull is deliberately decayed, the score runs 97.0 → 32.0 with 20 of 48 points below 50; on the streams given no fault it never enters that band (0 of 48 points). The page shows the number with its reason lines, so an operator can disagree with it.
 
+All six scenarios, because the one that does not move is the finding: `compressor_failure` 96.0 → 99.5 with 0 of 48 rolling points in the weak band; `door_left_open` 99.5 → 100.0 with 0 of 48 rolling points in the weak band; `heavy_loading` 99.0 → 100.0 with 0 of 48 rolling points in the weak band; `normal` 100.0 → 100.0 with 0 of 48 rolling points in the weak band; `power_failure` 100.0 → 100.0 with 0 of 48 rolling points in the weak band; `weak_compressor` 97.0 → 32.0 with 20 of 48 rolling points in the weak band. `compressor_failure` is the generator's dead-relay stream, in which the compressor is commanded OFF for a few hours a day while the supply reads fine - and a unit that never runs produces no cooling cycles at all, so the score is measured on the healthy stretches between the failures and stays high. That is not the score failing quietly: the same stream is the one the forecast was trained to catch (2 of 2 episodes, 12.5 min mean lead), it is the reason the page shows a health number and a risk badge rather than one of the two.
+
 ### The served code against the library that trained it
 
 | head | windows walked | largest stdlib minus sklearn gap °C | windows over 0.02 °C | test RMSE gap °C |
