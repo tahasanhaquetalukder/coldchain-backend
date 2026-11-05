@@ -111,6 +111,19 @@ def readings_of(device_id):
     return rows(q)
 
 
+def reading_flags(device_id):
+    """The two fields Task 5 added to the trace: (ts, compressor_on, power_ok), NULL left as NULL.
+
+    A separate reader because readings_of() unpacks four values in tests that predate Task 5, and a
+    widening there would be a change of shape for nothing.
+    """
+    def q(s):
+        return [(r.ts, r.compressor_on, r.power_ok)
+                for r in s.query(models.Reading).filter_by(device_id=device_id)
+                        .order_by(models.Reading.id).all()]
+    return rows(q)
+
+
 def set_batch_minutes(code, minutes):
     def q(s):
         s.query(models.Batch).filter_by(code=code).update({"used_minutes": minutes})

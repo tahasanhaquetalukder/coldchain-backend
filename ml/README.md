@@ -37,9 +37,11 @@ accuracy the field never sees.
 ## Committed and ignored
 
 `ml/data/*.csv` is generated, so it is ignored - except `ml/data/sample.csv`, 500 rows, committed
-so `train.py` can be reproduced without a generator run. `ml/results.json` and
-`backend/app/ai/model.json` are committed because the deployed backend needs the model and the
-report needs the metrics.
+so `train.py` can be started at all without a generator run. It is the first 50 minutes of each
+stream and therefore contains no fault: it proves the format and the plumbing, and `train.py` says
+so loudly when that is all it has. The committed model was trained on the full regenerated set.
+`ml/results.json` and `backend/app/ai/model.json` are committed because the deployed backend needs
+the model and the report needs the metrics.
 
 ## The honest limit
 

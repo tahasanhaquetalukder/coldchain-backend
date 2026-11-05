@@ -42,6 +42,11 @@ class Reading(Base):
     door_open = Column(Boolean)
     buffered = Column(Boolean, default=False)  # replayed from the node's offline buffer, not live
     received_ts = Column(Float, default=0.0)   # server arrival: age and clock drift stay separable
+    # Task 5: the compressor run and the supply state, both already signed and previously dropped on
+    # the way to the table. Nullable because every row written before this migration is NULL - the
+    # health score reads those as "not observed", never as "the compressor was off".
+    compressor_on = Column(Boolean, nullable=True)
+    power_ok = Column(Boolean, nullable=True)
 
 class Nonce(Base):
     __tablename__ = "nonces"

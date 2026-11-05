@@ -48,10 +48,13 @@ cd frontend
 npm install
 npm run dev
 
-# 3. Fake ESP32 (from the repo root; "hot" forces a heat excursion, "door" holds the door open)
+# 3. Fake ESP32 (from the repo root; "hot" forces a heat excursion, "door" holds the door open,
+#    "weak" and "powerfail" produce the two signals Task 5 scores - see the Insights page)
 backend\venv\Scripts\python.exe backend\simulator.py fridge-1
 backend\venv\Scripts\python.exe backend\simulator.py fridge-2 hot
 backend\venv\Scripts\python.exe backend\simulator.py fridge-1 door   # door alert after 60 s
+backend\venv\Scripts\python.exe backend\simulator.py fridge-1 weak       # runs long, cools little
+backend\venv\Scripts\python.exe backend\simulator.py fridge-2 powerfail  # mains drops, battery drains
 ```
 
 On first start the API seeds two fridges (`fridge-1`, `fridge-2`), two batches (`VAX-001`,

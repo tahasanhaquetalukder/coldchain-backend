@@ -28,7 +28,7 @@ def ensure_columns(table: str, *names: str):
     holds readings would keep ingesting with holes in the live view. PRAGMA table_info is SQLite-only,
     so this asks the SQLAlchemy inspector instead and lets the dialect name the column type - the same
     code runs against SQLite and the Postgres a deployed backend gets. Rows that predate the column
-    come back NULL, which every reader of these three columns already treats as 'unknown'.
+    come back NULL, which every reader of these columns already treats as 'unknown'.
     """
     have = {c["name"] for c in inspect(database.engine).get_columns(table)}
     missing = [n for n in names if n not in have]
@@ -44,7 +44,8 @@ def ensure_columns(table: str, *names: str):
 # what the live view reads: buffered = this arrived from the node's offline queue, received_ts = when
 # the server got it (that pair is what keeps device clock drift separate from age), and hmac_key = the
 # secret a node was issued, NULL meaning it still signs with the shared fleet key.
-ensure_columns("readings", "buffered", "received_ts")
+# compressor_on / power_ok were always signed and always thrown away; Task 5 needs the run history.
+ensure_columns("readings", "buffered", "received_ts", "compressor_on", "power_ok")
 ensure_columns("fridges", "hmac_key")
 
 # `or` so that a blank JWT_SECRET= in the environment is treated as unset rather than as a signing key
@@ -323,7 +324,8 @@ def sensor(m: SensorMsg, db: Session = Depends(database.get_db)):
         alert = f"{f.name} door has been open over {DOOR_LIMIT} seconds"
         audit.create_audit_log(db, "DOOR_ALERT", alert)
     db.add(models.Reading(device_id=m.device_id, ts=m.ts, temperature=m.temperature,
-                          door_open=m.door_open, buffered=m.buffered, received_ts=time.time()))
+                          door_open=m.door_open, buffered=m.buffered, received_ts=time.time(),
+                          compressor_on=m.compressor_on, power_ok=m.power_ok))
     db.commit()
     cleanup_old_nonces(db)
     if alert:

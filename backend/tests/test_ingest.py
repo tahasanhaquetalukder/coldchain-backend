@@ -5,7 +5,7 @@ operator sees them verbatim in the Devices tab, and a reworded reason is a rewor
 """
 import pytest
 
-from conftest import audit_rows, fridge_field, now, reading, readings_of, register, send
+from conftest import audit_rows, fridge_field, now, reading, reading_flags, readings_of, register, send
 
 SHARED = "fridge-1"          # a seeded fridge, so it still signs with the shared fleet key
 
@@ -128,6 +128,35 @@ def test_a_shut_door_resets_the_open_timer(client, tok):
     assert len(audit_rows("DOOR_ALERT", name)) == 1
     send(client, device_id, 5.0, t0 + 170, door=True, buffered=True, key=key)
     assert len(audit_rows("DOOR_ALERT", name)) == 2
+
+
+def test_the_signed_compressor_and_power_states_reach_the_trace(client, tok):
+    """Task 5 scores compressor runs and power gaps out of the readings table, and both fields have
+    been signed, verified and thrown away on the way in since Task 1. A health score built on that
+    table would otherwise have been guessing."""
+    _, device_id, key = register(client, tok["admin"])
+    send(client, device_id, 6.2, compressor_on=True, power_ok=False, key=key)
+    assert reading_flags(device_id)[-1][1:] == (True, False)
+    send(client, device_id, 6.3, compressor_on=False, power_ok=True, key=key)
+    assert reading_flags(device_id)[-1][1:] == (False, True)
+
+
+def test_a_row_without_the_new_fields_reads_back_unknown_not_off(client, tok):
+    """Rows written before the migration are NULL, and NULL must stay NULL.
+
+    Coerced to False, a week of history would claim the compressor never ran, which is the one
+    reading of the data that would make every health score meaningless.
+    """
+    _, device_id, key = register(client, tok["admin"])
+    assert send(client, device_id, 5.0, key=key).status_code == 201
+    from app import database, models
+    s = database.SessionLocal()
+    try:
+        s.add(models.Reading(device_id=device_id, ts=now() + 1, temperature=5.0, door_open=False))
+        s.commit()
+    finally:
+        s.close()
+    assert reading_flags(device_id)[-1][1:] == (None, None)
 
 
 def test_a_simulator_shaped_packet_is_accepted(client):
