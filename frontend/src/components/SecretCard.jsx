@@ -17,15 +17,15 @@ export default function SecretCard({ secret, onDismiss }) {
   };
 
   return (
-    <div className="rounded-3xl border-2 border-[#0e5a7a] bg-white p-6 text-sm">
-      <p className="font-bold text-[#0e5a7a] flex items-center gap-2">
+    <div className="card border-2 !border-primary">
+      <p className="font-bold text-primary flex items-center gap-2">
         <KeyRound className="h-4 w-4" />
         {secret.rotated
           ? `New key issued for ${secret.device_id} - the old one is dead`
           : `${secret.device_id} is registered`}
-        <span className="font-normal text-slate-600">· write these into cc_config.h</span>
+        <span className="font-normal text-text-2">· write these into cc_config.h</span>
       </p>
-      <pre className="mt-3 rounded-xl bg-slate-900 text-slate-100 p-4 text-xs leading-6 overflow-x-auto">
+      <pre className="mt-3 rounded-xl bg-surface-2 border border-border text-text p-4 text-xs leading-6 overflow-x-auto">
         {lines}
       </pre>
       <div className="mt-3 flex flex-wrap gap-2 items-center">
@@ -37,14 +37,14 @@ export default function SecretCard({ secret, onDismiss }) {
           <Copy className="inline h-3.5 w-3.5 mr-1" />
           copy key only
         </button>
-        {copied && <span className="text-xs text-emerald-700">copied {copied}</span>}
+        {copied && <span className="text-xs text-safe-strong">copied {copied}</span>}
       </div>
-      <p className="mt-3 text-xs text-red-800">
+      <p className="mt-3 text-xs text-danger-strong">
         This is the only time the server shows it. The node signs with this key alone - the shared fleet
         key is refused for it. If the node is reflashed or the key is lost, rotate it and paste the new
         pair; there is no way to read this one again.
       </p>
-      <button className="mt-3 text-xs underline text-slate-600" onClick={onDismiss}>
+      <button className="mt-3 text-xs underline text-text-2" onClick={onDismiss}>
         I have written it down
       </button>
     </div>

@@ -17,7 +17,7 @@ function FridgeCard({ fridge }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-xl font-bold truncate">{fridge.name}</h2>
-          <p className="text-xs text-slate-500 truncate">{fridge.device_id}</p>
+          <p className="text-xs text-muted truncate">{fridge.device_id}</p>
           <div className="mt-1 flex items-center gap-3">
             <OnlineDot ageS={null} online={fridge.online} />
             <BatteryBar battery={fridge.battery} powerOk={fridge.power_ok} />
@@ -32,7 +32,7 @@ function FridgeCard({ fridge }) {
 
       <h3 className="mt-5 mb-2 label">Heat budget per batch</h3>
       {fridge.batches.length === 0 ? (
-        <p className="text-sm text-slate-400 pb-3">No batches stored in this fridge.</p>
+        <p className="text-sm text-muted pb-3">No batches stored in this fridge.</p>
       ) : (
         fridge.batches.map((b) => <BudgetBar key={b.id} batch={b} />)
       )}
@@ -52,7 +52,7 @@ export default function Dashboard() {
       <DoorBanner fridges={fridges} />
       <ErrorNote message={error && fridges.length === 0 ? error : ''} onRetry={refresh} />
       {error && fridges.length > 0 && (
-        <p className="text-xs text-red-700 mb-2">Last refresh failed: {error}</p>
+        <p className="text-xs text-danger-strong mb-2">Last refresh failed: {error}</p>
       )}
 
       {loading ? (
@@ -72,7 +72,7 @@ export default function Dashboard() {
               <FridgeCard key={f.id} fridge={f} />
             ))}
           </div>
-          <p className="mt-6 text-xs text-slate-500">
+          <p className="mt-6 text-xs text-muted">
             Numbers refresh every {POLL_MS / 1000} seconds from <span className="font-mono">/api/dashboard</span>.
             A fridge that has never reported shows <em>No data</em> rather than a safe-looking 5.0.
           </p>

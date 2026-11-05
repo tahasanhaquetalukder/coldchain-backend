@@ -39,41 +39,41 @@ export default function PublicCheck({ code }) {
   const status = batch ? (batch.expired ? 'Discard' : batch.status) : null;
 
   return (
-    <div className="min-h-screen grid place-items-center bg-[#eef4f6] p-4 sm:p-6">
+    <div className="min-h-screen grid place-items-center bg-page p-4 sm:p-6">
       <div className="card w-full max-w-sm text-center">
-        <div className="flex items-center justify-center gap-2 text-[#0e5a7a]">
+        <div className="flex items-center justify-center gap-2 text-primary">
           <Snowflake className="h-5 w-5" />
           <span className="text-sm font-bold tracking-wide">Cold-chain check</span>
         </div>
-        <p className="mt-1 font-mono text-xs text-slate-500">Batch {code}</p>
+        <p className="mt-1 font-mono text-xs text-muted">Batch {code}</p>
 
         <div className="mt-5 min-h-[190px]">
           {busy && <Loading rows={4} h="h-8" />}
           {!busy && error && (
-            <div className="rounded-2xl bg-slate-100 p-6">
-              <p className="text-lg font-bold text-slate-700">Unknown batch</p>
-              <p className="mt-2 text-sm text-slate-600">{error}</p>
+            <div className="rounded-2xl bg-surface-2 p-6">
+              <p className="text-lg font-bold text-text">Unknown batch</p>
+              <p className="mt-2 text-sm text-text-2">{error}</p>
             </div>
           )}
           {!busy && batch && (
             <>
               <div
-                className="mx-auto h-28 w-28 rounded-full grid place-items-center text-white text-xl font-extrabold"
+                className="mx-auto h-28 w-28 rounded-full grid place-items-center text-on-dark text-xl font-extrabold"
                 style={{ background: tone(status) }}
               >
                 {status}
               </div>
               <h1 className="display mt-5 text-3xl leading-tight">{batch.vaccine}</h1>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-text-2">
                 Expires {batch.expiry}
-                {batch.expired && <span className="font-bold text-red-700"> — expired</span>}
+                {batch.expired && <span className="font-bold text-danger-strong"> — expired</span>}
               </p>
-              <p className="mt-4 text-sm text-slate-700">{ADVICE[status]}</p>
+              <p className="mt-4 text-sm text-text">{ADVICE[status]}</p>
             </>
           )}
         </div>
 
-        <p className="mt-5 text-[11px] text-slate-400">
+        <p className="mt-5 text-[11px] text-muted">
           Automatic reading of the fridge that stored this batch. A pharmacist's decision always
           overrides it.
         </p>

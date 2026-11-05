@@ -118,7 +118,7 @@ export default function Inventory() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left min-w-[860px]">
-              <thead className="text-slate-500">
+              <thead className="text-muted">
                 <tr>{['Batch', 'Vaccine', 'Expiry', 'Status', 'Budget', 'Fridge', 'Label', 'Actions'].map((h) => (
                   <th key={h} className="p-4 font-medium whitespace-nowrap">{h}</th>
                 ))}</tr>
@@ -148,7 +148,7 @@ export default function Inventory() {
                       </button>
                     </td>
                     <td className="whitespace-nowrap">
-                      <a className="text-sky-700 underline" href={checkUrl(b.code)} target="_blank" rel="noreferrer">
+                      <a className="text-accent underline" href={checkUrl(b.code)} target="_blank" rel="noreferrer">
                         Open check page
                       </a>
                       {isAdmin && b.status !== 'Safe' && (
@@ -167,7 +167,7 @@ export default function Inventory() {
         )}
       </div>
 
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-muted">
         A batch is charged heat minutes by the fridge it is stored in, so moving it here is what
         decides which node's temperature counts against it.
       </p>

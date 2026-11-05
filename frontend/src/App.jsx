@@ -1,9 +1,10 @@
 import { lazy, Suspense } from 'react';
-import { Boxes, Cpu, LayoutDashboard, LogOut, ScrollText, Snowflake } from 'lucide-react';
+import { Boxes, Cpu, LayoutDashboard, LogOut, Moon, ScrollText, Snowflake, Sun } from 'lucide-react';
 import { API_BASE } from './api.js';
 import { AuthProvider, useAuth } from './auth.jsx';
 import { Loading } from './components/States.jsx';
 import { navigate, useHashRoute } from './components/useRoute.js';
+import { useTheme } from './components/theme.js';
 import Login from './pages/Login.jsx';
 import PublicCheck from './pages/PublicCheck.jsx';
 
@@ -28,6 +29,7 @@ const PAGES = {
 function Shell() {
   const route = useHashRoute();
   const auth = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
   // A scanned QR label opens #/check/CODE on whoever's phone it is. Resolved before the auth gate
   // and outside the header, so a login cannot block it and it cannot show the console.
@@ -41,20 +43,28 @@ function Shell() {
   const Page = PAGES[active];
 
   return (
-    <div className="min-h-screen bg-[#eef4f6]">
-      <header className="bg-[#0b2a3b] text-white">
+    <div className="min-h-screen bg-page">
+      <header className="bg-sidebar text-on-dark">
         <div className="mx-auto max-w-6xl px-4 sm:px-6 pt-4">
           <div className="flex items-center gap-3">
-            <Snowflake className="h-6 w-6 shrink-0 text-sky-300" />
+            <Snowflake className="h-6 w-6 shrink-0 text-accent-2" />
             <div className="min-w-0 flex-1">
               <p className="display leading-tight truncate">Cold-chain Console</p>
-              <p className="text-[11px] text-sky-100/60 truncate">
+              <p className="text-[11px] text-on-dark-2 truncate">
                 {/* naming the API host: "no data" and "wrong VITE_API_BASE" look identical otherwise */}
                 {auth.username} · {auth.role} · API {API_BASE || window.location.origin}
               </p>
             </div>
             <button
-              className="flex items-center gap-2 rounded-xl border border-white/25 px-3 py-1.5 text-sm hover:bg-white/10"
+              className="flex items-center gap-2 rounded-xl border border-[var(--on-dark-line)] px-3 py-1.5 text-sm hover:bg-[var(--on-dark-hover)]"
+              onClick={toggleTheme}
+              aria-label={theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme'}
+            >
+              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              <span className="hidden sm:inline">{theme === 'dark' ? 'Light' : 'Dark'}</span>
+            </button>
+            <button
+              className="flex items-center gap-2 rounded-xl border border-[var(--on-dark-line)] px-3 py-1.5 text-sm hover:bg-[var(--on-dark-hover)]"
               onClick={() => {
                 auth.logout();
                 navigate('/dashboard');
@@ -74,7 +84,7 @@ function Shell() {
                   onClick={() => navigate(`/${t.path}`)}
                   aria-current={on ? 'page' : undefined}
                   className={`flex shrink-0 items-center gap-2 rounded-t-xl px-4 py-2 font-bold ${
-                    on ? 'bg-[#eef4f6] text-[#0b2a3b]' : 'text-sky-100/80 hover:bg-white/10'
+                    on ? 'bg-page text-text' : 'text-on-dark-2 hover:bg-[var(--on-dark-hover)]'
                   }`}
                 >
                   <Icon className="h-4 w-4" />
@@ -92,7 +102,7 @@ function Shell() {
             <Page />
           </Suspense>
         ) : (
-          <p className="card text-sm text-slate-600">
+          <p className="card text-sm text-text-2">
             The {tab.label.toLowerCase()} view belongs to the admin and inspector roles. You are
             signed in as <span className="font-bold">{auth.role}</span>.
           </p>

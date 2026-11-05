@@ -9,8 +9,127 @@
     font-family: 'Public Sans', system-ui, sans-serif;
   }
 
+  /* DARK IS THE DEFAULT, and it is written on :root rather than on [data-theme="dark"] so the page
+     is already dark before any script runs. This console is read on a ward at night and the screen
+     faces the operator; the light palette is the opt-in. */
+  :root {
+    color-scheme: dark;
+
+    --page: #07141d;
+    --surface: #0f2431;
+    --surface-2: #15303f;
+    --border: #1d3b4e;
+    --sidebar: #04111a;
+    --hover: #1b3c4f;
+
+    --text: #e8f1f5;
+    --text-2: #b9d0db;
+    --muted: #9fc0d0;
+
+    --primary: #17759c;
+    --primary-ink: #ffffff;
+    --primary-soft: #12384d;
+    --accent: #5bb8e0;
+    --accent-2: #7cc4e4;
+
+    /* graphics | strong text on --surface | soft background for a pill */
+    --safe: #2fb37a;
+    --safe-strong: #6fe0a8;
+    --safe-soft: #12382a;
+    --warn: #e0a62e;
+    --warn-strong: #f3c35b;
+    --warn-soft: #3d2d08;
+    /* --danger is the only red used for text on --surface: #c8372d would be 3.2:1 there. */
+    --danger: #e0584d;
+    --danger-strong: #ff7a6e;
+    --danger-soft: #3d1d1a;
+    --neutral: #7fa6b8;
+    --neutral-strong: #b9d0db;
+    --neutral-soft: #16303f;
+
+    --field: #102b3a;
+    --field-border: #2a5670;
+    --placeholder: #7f9fb0;
+
+    /* chart-only: recharts cannot read a var(), so theme.js resolves these two with getComputedStyle */
+    --grid: #1d3b4e;
+    --safe-band: rgba(47, 179, 122, 0.16);
+
+    /* The halo behind a live dot. It is its own token because a var() cannot take a hex alpha
+       suffix the way `#1f8a5b22` did. */
+    --safe-ring: rgba(47, 179, 122, 0.24);
+    --warn-ring: rgba(224, 166, 46, 0.24);
+    --danger-ring: rgba(224, 88, 77, 0.24);
+    --neutral-ring: rgba(127, 166, 184, 0.18);
+
+    --scrim: rgba(2, 8, 12, 0.74);
+
+    /* Text that sits on a panel which is dark in both themes (the sidebar, the login brand panel). */
+    --on-dark: #e8f1f5;
+    --on-dark-2: #9fc0d0;
+    /* A word printed on a status fill: on the dark palette the fills are light, so this is dark. */
+    --on-status: #06131d;
+    /* Hairlines and hover ground inside the always-dark panels (sidebar, login brand). */
+    --on-dark-line: rgba(232, 241, 245, 0.24);
+    --on-dark-hover: rgba(232, 241, 245, 0.1);
+  }
+
+  [data-theme="light"] {
+    color-scheme: light;
+
+    --page: #eef4f6;
+    --surface: #ffffff;
+    --surface-2: #f4f8fa;
+    --border: #d5e2e8;
+    --sidebar: #0b2a3b;
+    --hover: #e7eff2;
+
+    --text: #0f2231;
+    --text-2: #33505f;
+    --muted: #567585;
+
+    --primary: #0e5a7a;
+    --primary-ink: #ffffff;
+    --primary-soft: #e2eff4;
+    --accent: #0b6a91;
+    --accent-2: #0e5a7a;
+
+    --safe: #1f8a5b;
+    --safe-strong: #14663f;
+    --safe-soft: #e3f4ea;
+    --warn: #c98a0a;
+    --warn-strong: #855b06;
+    --warn-soft: #fbf1da;
+    --danger: #c8372d;
+    --danger-strong: #a52a21;
+    --danger-soft: #fbe9e7;
+    --neutral: #94a3b8;
+    --neutral-strong: #475569;
+    --neutral-soft: #e6ecef;
+
+    --field: #ffffff;
+    --field-border: #c3d3db;
+    --placeholder: #7f8f99;
+
+    --grid: #e2e8f0;
+    --safe-band: #e2f0e8;
+
+    --safe-ring: rgba(31, 138, 91, 0.20);
+    --warn-ring: rgba(201, 138, 10, 0.20);
+    --danger-ring: rgba(200, 55, 45, 0.20);
+    --neutral-ring: rgba(148, 163, 184, 0.16);
+
+    --scrim: rgba(11, 42, 59, 0.45);
+
+    --on-dark: #ffffff;
+    --on-dark-2: #b9d6e2;
+    --on-status: #ffffff;
+    --on-dark-line: rgba(255, 255, 255, 0.26);
+    --on-dark-hover: rgba(255, 255, 255, 0.1);
+  }
+
   body {
-    @apply bg-[#eef4f6] text-slate-900 antialiased;
+    @apply bg-page text-text antialiased;
   }
 
   .display {
@@ -20,31 +139,51 @@
 
 @layer components {
   .card {
-    @apply bg-white rounded-3xl p-6;
+    @apply bg-surface border border-border rounded-3xl p-6;
   }
 
   .btn-primary {
-    @apply bg-[#0e5a7a] text-white font-bold rounded-xl px-4 py-2 disabled:opacity-50;
+    @apply bg-primary text-primary-ink font-bold rounded-xl px-4 py-2 disabled:opacity-50;
   }
 
   .btn-quiet {
-    @apply border rounded-xl px-3 py-1.5 bg-white text-sm disabled:opacity-50;
+    @apply border border-border rounded-xl px-3 py-1.5 text-sm disabled:opacity-50;
+    background: var(--surface-2);
+  }
+
+  .btn-quiet:hover:not(:disabled) {
+    background: var(--hover);
   }
 
   .btn-danger {
-    @apply text-red-700 underline text-sm disabled:opacity-50;
+    @apply text-danger-strong underline text-sm disabled:opacity-50;
   }
 
   .field {
-    @apply border rounded-xl px-3 py-2 bg-white text-sm;
+    @apply rounded-xl px-3 py-2 text-sm;
+    background: var(--field);
+    border: 1px solid var(--field-border);
+    color: var(--text);
+  }
+
+  .field::placeholder {
+    color: var(--placeholder);
   }
 
   .label {
-    @apply text-xs font-bold uppercase tracking-wide text-slate-500;
+    @apply text-xs font-bold uppercase tracking-wide text-muted;
+  }
+
+  /* A pill that says Safe / At Risk / Discard has to be the same three shapes on a fridge, a batch
+     and a scanned label, so all three pages take one of these. */
+  .badge {
+    @apply px-2.5 py-1 rounded-full text-xs font-bold;
   }
 }
 
-/* Printing the label is the point of the QR modal, and the page behind it must not come along. */
+/* Printing the label is the point of the QR modal, and the page behind it must not come along.
+   The dark theme would otherwise print a black rectangle: this resets the label to black on white
+   whatever the screen looks like. */
 @media print {
 
   body * {
@@ -62,5 +201,13 @@
     top: 0;
     width: 100%;
     text-align: center;
+    background: #fff !important;
+    border: none !important;
+    color: #000 !important;
+  }
+
+  #qr-print * {
+    background: transparent !important;
+    color: #000 !important;
   }
 }

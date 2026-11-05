@@ -10,12 +10,12 @@ export default function BudgetBar({ batch }) {
           {batch.code} · {batch.vaccine}
         </span>
         <span className="flex items-center gap-2 shrink-0">
-          <span className="tabular-nums text-slate-600">{batch.remaining_min} min left</span>
+          <span className="tabular-nums text-text-2">{batch.remaining_min} min left</span>
           <StatusBadge status={batch.status} />
         </span>
       </div>
       <div
-        className="h-2 rounded bg-slate-100 mt-1 overflow-hidden"
+        className="h-2 rounded bg-surface-2 mt-1 overflow-hidden"
         role="progressbar"
         aria-valuenow={batch.remaining_pct}
         aria-valuemin={0}

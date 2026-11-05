@@ -5,7 +5,7 @@ export function Loading({ rows = 3, h = 'h-4' }) {
   return (
     <div className="space-y-2" role="status" aria-label="Loading">
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className={`${h} rounded bg-slate-100`} style={{ width: `${100 - i * 12}%` }} />
+        <div key={i} className={`${h} rounded bg-surface-2`} style={{ width: `${100 - i * 12}%` }} />
       ))}
       <span className="sr-only">
         <Loader className="inline h-3 w-3 animate-spin" /> loading
@@ -16,9 +16,9 @@ export function Loading({ rows = 3, h = 'h-4' }) {
 
 export function Empty({ title, hint }) {
   return (
-    <div className="rounded-2xl bg-slate-50 p-6 text-center text-sm text-slate-500">
-      <ScanLine className="mx-auto h-6 w-6 text-slate-400" />
-      <p className="mt-2 font-bold text-slate-600">{title}</p>
+    <div className="rounded-2xl bg-surface-2 border border-border p-6 text-center text-sm text-muted">
+      <ScanLine className="mx-auto h-6 w-6 text-neutral" />
+      <p className="mt-2 font-bold text-text-2">{title}</p>
       {hint && <p className="mt-1">{hint}</p>}
     </div>
   );
@@ -28,11 +28,11 @@ export function Empty({ title, hint }) {
 export function ErrorNote({ message, onRetry }) {
   if (!message) return null;
   return (
-    <p className="flex flex-wrap items-center gap-2 bg-red-50 text-red-800 border border-red-200 rounded-xl px-4 py-2 text-sm">
+    <p className="flex flex-wrap items-center gap-2 bg-danger-soft text-danger-strong border border-danger rounded-xl px-4 py-2 text-sm">
       <CircleAlert className="h-4 w-4 shrink-0" />
       <span className="flex-1 min-w-40">{message}</span>
       {onRetry && (
-        <button className="underline text-red-900" onClick={onRetry}>
+        <button className="underline font-bold text-danger-strong" onClick={onRetry}>
           try again
         </button>
       )}
@@ -43,6 +43,8 @@ export function ErrorNote({ message, onRetry }) {
 /** Inline message from a write that failed, kept in the same slot as the form so nothing shifts. */
 export function FormNote({ message, kind = 'error' }) {
   if (!message) return null;
-  const tone = kind === 'ok' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-red-50 text-red-800 border-red-200';
-  return <p className={`rounded-xl border px-3 py-2 text-sm ${tone}`}>{message}</p>;
+  const look = kind === 'ok'
+    ? 'bg-safe-soft text-safe-strong border-safe'
+    : 'bg-danger-soft text-danger-strong border-danger';
+  return <p className={`rounded-xl border px-3 py-2 text-sm ${look}`}>{message}</p>;
 }

@@ -55,23 +55,23 @@ export default function Audit() {
           </button>
           {check &&
             (check.valid ? (
-              <p className="flex items-center gap-2 font-bold text-emerald-700 text-sm">
+              <p className="flex items-center gap-2 font-bold text-safe-strong text-sm">
                 <CheckCircle2 className="h-5 w-5" />
                 Chain intact, {check.checked} records
               </p>
             ) : (
-              <p className="flex items-center gap-2 font-bold text-red-700 text-sm">
+              <p className="flex items-center gap-2 font-bold text-danger-strong text-sm">
                 <ShieldAlert className="h-5 w-5" />
                 Tampering detected at record #{check.broken_at}: {check.reason}
               </p>
             ))}
           {check?.valid && check.head && (
-            <p className="text-xs text-slate-500 ml-auto">
+            <p className="text-xs text-muted ml-auto">
               head <span className="font-mono">{check.head.slice(0, 16)}…</span>
             </p>
           )}
         </div>
-        <p className="mt-3 text-xs text-slate-500">
+        <p className="mt-3 text-xs text-muted">
           Every record hashes the one before it, and the newest hash is mirrored in an anchor file
           outside the database - that is what makes deleting the tail as visible as editing the middle.
         </p>
@@ -82,7 +82,7 @@ export default function Audit() {
       <div className="card !p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left min-w-[760px]">
-            <thead className="text-slate-500">
+            <thead className="text-muted">
               <tr>{['#', 'Event', 'Details', 'Hash', 'Time (UTC)'].map((h) => (
                 <th key={h} className="py-2 pr-4 font-medium whitespace-nowrap">{h}</th>
               ))}</tr>
@@ -92,7 +92,7 @@ export default function Audit() {
                 <tr key={l.id} className="border-t">
                   <td className="py-2 pr-4 tabular-nums">{l.id}</td>
                   <td className="pr-4 font-bold whitespace-nowrap"
-                      style={{ color: RED_ACTIONS.test(l.action) ? '#c8372d' : undefined }}>
+                      style={{ color: RED_ACTIONS.test(l.action) ? 'var(--danger-strong)' : undefined }}>
                     {l.action}
                   </td>
                   <td className="pr-4 break-all">{l.details}</td>
@@ -106,7 +106,7 @@ export default function Audit() {
           </table>
         </div>
         {rows.length >= 200 && (
-          <p className="p-4 pt-0 text-xs text-slate-500">
+          <p className="p-4 pt-0 text-xs text-muted">
             The server returns the newest 200 records; the chain check runs over every row it holds.
           </p>
         )}

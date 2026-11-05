@@ -26,20 +26,20 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0b2a3b] text-white grid md:grid-cols-2">
+    <div className="min-h-screen bg-sidebar text-on-dark grid md:grid-cols-2">
       <div className="p-8 sm:p-12 flex flex-col justify-end">
-        <Snowflake className="h-10 w-10 text-sky-300 mb-6" />
+        <Snowflake className="h-10 w-10 text-accent-2 mb-6" />
         <h1 className="display text-4xl sm:text-6xl leading-none">
           Every dose,
           <br />
           kept between 2 and 8 degrees.
         </h1>
-        <p className="mt-5 text-sky-100/70 max-w-md">
+        <p className="mt-5 text-on-dark-2 max-w-md">
           Live fridge monitoring, heat-exposure budgets and a tamper-evident log for vaccine batches.
         </p>
       </div>
 
-      <div className="bg-[#eef4f6] text-slate-900 p-8 sm:p-12 flex flex-col justify-center gap-3">
+      <div className="bg-page text-text p-8 sm:p-12 flex flex-col justify-center gap-3">
         <h2 className="text-2xl font-bold">Sign in</h2>
         <form className="flex flex-col gap-3" onSubmit={submit}>
           <label className="text-sm">
@@ -71,7 +71,7 @@ export default function Login() {
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-muted">
           Demo accounts: {ROLES.map((r) => `${r} / ${r}123`).join(' · ')}. Sessions end when the tab
           closes.
         </p>

@@ -17,7 +17,7 @@ export default function QrModal({ batch, onClose }) {
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0b2a3b]/60 grid place-items-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-scrim grid place-items-center p-4" onClick={onClose}>
       <div
         id="qr-print"
         className="card w-full max-w-sm text-center"
@@ -32,13 +32,15 @@ export default function QrModal({ batch, onClose }) {
             <X className="h-4 w-4" />
           </button>
         </div>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-text-2">
           {batch.vaccine} · expires {batch.expiry}
         </p>
-        <div className="mx-auto mt-4 h-56 w-56 grid place-items-center bg-white">
+        {/* Never a token: a dark tile is an unreadable tile. Contrast is what a scanner measures, and
+            a module that is not darker than its neighbour is not a module. */}
+        <div className="mx-auto mt-4 h-56 w-56 grid place-items-center bg-white p-2 rounded-xl">
           <QRCodeSVG value={url} size={216} level="M" includeMargin />
         </div>
-        <p className="mt-3 break-all font-mono text-[11px] text-slate-500">{url}</p>
+        <p className="mt-3 break-all font-mono text-[11px] text-muted">{url}</p>
         <div className="mt-4 flex flex-wrap justify-center gap-2">
           <button className="btn-primary flex items-center gap-2" onClick={() => window.print()}>
             <Printer className="h-4 w-4" /> Print label
