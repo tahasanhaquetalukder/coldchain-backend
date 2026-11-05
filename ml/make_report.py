@@ -114,15 +114,18 @@ def main():
            "standard library walks at request time, which is why `backend/requirements.txt` gained nothing: the "
            "training libraries live in `ml/.venv` and neither the backend nor Render ever sees them.", "",
            "Three things it is measured against:"]
-    out += table(["baseline", "temp30 test RMSE °C", "max30 test RMSE °C"],
-                 [("ridge on the same scaled features (reference fit for the choice)",
+    out += table(["baseline", "temp30 RMSE °C", "max30 RMSE °C", "which windows"],
+                 [("ridge on the same scaled features (the reference the choice was made against)",
                    selection["temp30"]["ridge"][str(selection["temp30"]["ridge_reference"]["alpha"])],
-                   selection["max30"]["ridge"][str(selection["max30"]["ridge_reference"]["alpha"])]),
-                  ("this model (gbm, validation)", selection["temp30"]["gbm_val_rmse"], selection["max30"]["gbm_val_rmse"]),
-                  ("this model (gbm, test)", selection["temp30"]["gbm_test_rmse"], selection["max30"]["gbm_test_rmse"]),
+                   selection["max30"]["ridge"][str(selection["max30"]["ridge_reference"]["alpha"])], "validation"),
+                  ("this model (gbm)", selection["temp30"]["gbm_val_rmse"], selection["max30"]["gbm_val_rmse"], "validation"),
+                  ("this model (gbm)", selection["temp30"]["gbm_test_rmse"], selection["max30"]["gbm_test_rmse"],
+                   f"test ({max30['n']:,})"),
                   ("fallback: straight line from the last minutes, no model at all",
-                   reg["fallback_temp30"]["rmse_c"], reg["fallback_max30"]["rmse_c"])])
+                   reg["fallback_temp30"]["rmse_c"], reg["fallback_max30"]["rmse_c"], "test")])
     out += ["",
+            "The ridge row is the sweep's validation number, because that is the only ridge figure "
+            "`results.json` keeps - the head was chosen on it and gbm won, so its test score was never recorded. "
             "The fallback is what the backend answers when `model.json` is absent, scored on exactly the same "
             f"{max30['n']:,} test windows - worth putting in writing, because \"the model is decent\" and \"the "
             "model beats nothing\" are different claims.", "",
