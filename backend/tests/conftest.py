@@ -78,6 +78,19 @@ def clear_reject_throttle():
     main._REJECT_SEEN.clear()
 
 
+@pytest.fixture(autouse=True)
+def clear_breach_state():
+    """Same reason for the two Task 5 dicts: the episode flag and the ingest evaluation clock are
+    process-global, and a test that asserts "exactly one BREACH_WARNING" cannot trust the previous
+    test's episode to have closed."""
+    main._AI_CHECKED.clear()
+    from app.ai import predict
+    predict._BREACH_SEEN.clear()
+    yield
+    main._AI_CHECKED.clear()
+    predict._BREACH_SEEN.clear()
+
+
 # Every reader below opens its own session and closes it. A session kept open across an API call
 # would hold a SQLite read transaction, and in a rollback-journal database a reader is what stops
 # the server's writer from committing at all - the test would hang instead of failing.
@@ -166,6 +179,18 @@ def reading(device_id, temperature, ts=None, door=False, buffered=False, key=Non
 
 def send(client, device_id, temperature, ts=None, **kw):
     return client.post("/api/sensor", json=reading(device_id, temperature, ts, **kw))
+
+
+def history(client, device_id, key=None, minutes=30, base=5.0, trend=0.1, start=None, **over):
+    """A run of signed readings one minute apart, oldest first - the trace a forecast needs.
+
+    Sent as buffered on purpose: the live window is 60 seconds, so a history is by definition outside
+    it, and a node's replayed queue is exactly what the server gets after an outage anyway.
+    """
+    start = start if start is not None else now() - minutes * 60
+    for i in range(minutes):
+        send(client, device_id, round(base + trend * i, 2), ts=start + i * 60,
+             buffered=True, key=key, **over)
 
 
 def register(client, admin, name="test node"):

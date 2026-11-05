@@ -1,0 +1,332 @@
+{
+  "generated_by": "ml/evaluate.py",
+  "generated_at": "2026-11-05T06:28:06Z",
+  "runtime_seconds": 145.4,
+  "model": {
+    "path": "backend/app/ai/model.json",
+    "bytes": 137720,
+    "generated_at": "2026-11-05T06:14:57Z",
+    "seed": 7,
+    "trained_on_windows": 120432,
+    "heads": {
+      "temp30": "gbm",
+      "max30": "gbm"
+    },
+    "rmse_c_reported_by_train": {
+      "temp30": 1.0803,
+      "max30": 0.6998
+    },
+    "selection": {
+      "temp30": {
+        "head": "temp30",
+        "ridge": {
+          "0.01": 1.6595,
+          "0.1": 1.6595,
+          "1.0": 1.6593,
+          "10.0": 1.6579,
+          "100.0": 1.656
+        },
+        "ridge_reference": {
+          "alpha": 100.0,
+          "intercept": 5.3961,
+          "coef": {
+            "temp_last": -0.1758,
+            "mean_5": -0.2532,
+            "mean_15": 0.0308,
+            "slope_5": 0.0398,
+            "slope_15": -0.7455,
+            "max_15": -0.251,
+            "min_15": 1.3252,
+            "above8_min": 0.7257,
+            "duty_15": 0.643,
+            "door_min_15": -0.2919,
+            "power_off_min_15": -0.0288,
+            "dev_from_mean": 0.6729,
+            "flags_known": 0.0,
+            "hour_sin": -0.0612,
+            "hour_cos": -0.1056,
+            "history_min": -0.0148
+          }
+        },
+        "gbm_val_rmse": 1.018,
+        "gbm_test_rmse": 1.0803,
+        "gbm_params": {
+          "n_estimators": 200,
+          "max_depth": 3,
+          "learning_rate": 0.05,
+          "subsample": 0.8,
+          "random_state": 0
+        }
+      },
+      "max30": {
+        "head": "max30",
+        "ridge": {
+          "0.01": 0.7953,
+          "0.1": 0.7952,
+          "1.0": 0.7944,
+          "10.0": 0.7894,
+          "100.0": 0.79
+        },
+        "ridge_reference": {
+          "alpha": 10.0,
+          "intercept": 7.1149,
+          "coef": {
+            "temp_last": -0.2818,
+            "mean_5": -1.0834,
+            "mean_15": 5.1397,
+            "slope_5": -0.2791,
+            "slope_15": -2.0329,
+            "max_15": -1.4918,
+            "min_15": -1.4822,
+            "above8_min": 0.7192,
+            "duty_15": -0.1372,
+            "door_min_15": -0.0711,
+            "power_off_min_15": 0.1588,
+            "dev_from_mean": 3.1941,
+            "flags_known": 0.0,
+            "hour_sin": -0.12,
+            "hour_cos": 0.0608,
+            "history_min": 0.006
+          }
+        },
+        "gbm_val_rmse": 0.501,
+        "gbm_test_rmse": 0.6998,
+        "gbm_params": {
+          "n_estimators": 200,
+          "max_depth": 3,
+          "learning_rate": 0.05,
+          "subsample": 0.8,
+          "random_state": 0
+        }
+      }
+    }
+  },
+  "data": {
+    "streams": 12,
+    "scenarios": [
+      "compressor_failure",
+      "door_left_open",
+      "heavy_loading",
+      "normal",
+      "power_failure",
+      "weak_compressor"
+    ],
+    "windows": 120432,
+    "source": "SIMULATED by ml/generate_data.py --seed 7. No row came from a device."
+  },
+  "split": {
+    "train": 83940,
+    "test": 18072,
+    "walls_at_epoch_minute": [
+      29507039,
+      29508544
+    ],
+    "purged_rows_at_walls": 720,
+    "purge_min": 30,
+    "alarm_searched_back_min": 30,
+    "threshold_c": 8.0,
+    "episode_min_minutes": 3,
+    "episode_gap_minutes": 2
+  },
+  "regression_on_test": {
+    "temp30": {
+      "mae_c": 0.6716,
+      "rmse_c": 1.0803,
+      "bias_c": 0.1116,
+      "n": 18072
+    },
+    "max30": {
+      "mae_c": 0.3351,
+      "rmse_c": 0.6998,
+      "bias_c": 0.1452,
+      "n": 18072
+    },
+    "fallback_temp30": {
+      "mae_c": 4.9199,
+      "rmse_c": 5.9432,
+      "bias_c": 0.0881,
+      "n": 18072
+    },
+    "fallback_max30": {
+      "mae_c": 2.0853,
+      "rmse_c": 2.497,
+      "bias_c": 0.2281,
+      "n": 18072
+    }
+  },
+  "breach_on_test": {
+    "tp": 761,
+    "fp": 6,
+    "fn": 203,
+    "tn": 17102,
+    "precision": 0.9922,
+    "recall": 0.7894,
+    "f1": 0.8793,
+    "fallback": {
+      "tp": 813,
+      "fp": 7195,
+      "fn": 151,
+      "tn": 9913,
+      "precision": 0.1015,
+      "recall": 0.8434,
+      "f1": 0.1812
+    },
+    "false_alarm_events_in_test": 6,
+    "fridge_days_in_test": 12.55,
+    "false_alarms_per_fridge_day": 0.4781,
+    "per_scenario": {
+      "compressor_failure": {
+        "fridge_days": 2.092,
+        "false_alarm_minutes": 1,
+        "false_alarm_events": 1,
+        "events_per_fridge_day": 0.4781
+      },
+      "door_left_open": {
+        "fridge_days": 2.092,
+        "false_alarm_minutes": 2,
+        "false_alarm_events": 2,
+        "events_per_fridge_day": 0.9562
+      },
+      "heavy_loading": {
+        "fridge_days": 2.092,
+        "false_alarm_minutes": 0,
+        "false_alarm_events": 0,
+        "events_per_fridge_day": 0.0
+      },
+      "normal": {
+        "fridge_days": 2.092,
+        "false_alarm_minutes": 0,
+        "false_alarm_events": 0,
+        "events_per_fridge_day": 0.0
+      },
+      "power_failure": {
+        "fridge_days": 2.092,
+        "false_alarm_minutes": 3,
+        "false_alarm_events": 3,
+        "events_per_fridge_day": 1.4343
+      },
+      "weak_compressor": {
+        "fridge_days": 2.092,
+        "false_alarm_minutes": 0,
+        "false_alarm_events": 0,
+        "events_per_fridge_day": 0.0
+      }
+    },
+    "note": "one sample is one minute-window, so a nine-minute breach is nine positives; episodes_on_test holds the per-fridge numbers"
+  },
+  "episodes_on_test": {
+    "compressor_failure": {
+      "episodes": 2,
+      "detected": 2,
+      "missed": 0,
+      "alarmed_at_onset": 0,
+      "alarmed_early": 2,
+      "mean_lead_min": 12.5,
+      "min_lead_min": 9,
+      "max_lead_min": 16,
+      "mean_length_min": 152.0
+    },
+    "door_left_open": {
+      "episodes": 2,
+      "detected": 2,
+      "missed": 0,
+      "alarmed_at_onset": 0,
+      "alarmed_early": 2,
+      "mean_lead_min": 10.0,
+      "min_lead_min": 7,
+      "max_lead_min": 13,
+      "mean_length_min": 90.0
+    },
+    "heavy_loading": {
+      "episodes": 2,
+      "detected": 2,
+      "missed": 0,
+      "alarmed_at_onset": 2,
+      "alarmed_early": 0,
+      "mean_lead_min": 0.0,
+      "min_lead_min": 0,
+      "max_lead_min": 0,
+      "mean_length_min": 23.0
+    },
+    "normal": {
+      "episodes": 0,
+      "detected": 0,
+      "missed": 0,
+      "alarmed_at_onset": 0,
+      "alarmed_early": 0,
+      "mean_lead_min": null,
+      "min_lead_min": null,
+      "max_lead_min": null,
+      "mean_length_min": null
+    },
+    "power_failure": {
+      "episodes": 4,
+      "detected": 4,
+      "missed": 0,
+      "alarmed_at_onset": 0,
+      "alarmed_early": 4,
+      "mean_lead_min": 13.0,
+      "min_lead_min": 10,
+      "max_lead_min": 16,
+      "mean_length_min": 36.0
+    },
+    "weak_compressor": {
+      "episodes": 0,
+      "detected": 0,
+      "missed": 0,
+      "alarmed_at_onset": 0,
+      "alarmed_early": 0,
+      "mean_lead_min": null,
+      "min_lead_min": null,
+      "max_lead_min": null,
+      "mean_length_min": null
+    },
+    "overall": {
+      "episodes": 10,
+      "detected": 10,
+      "missed": 0,
+      "alarmed_early": 8,
+      "mean_lead_min": 9.7
+    }
+  },
+  "stdlib_walk_check": [
+    {
+      "head": "temp30",
+      "kind": "gbm",
+      "checked": true,
+      "windows": 18072,
+      "max_abs_diff_c": 0.073697,
+      "mean_abs_diff_c": 7e-06,
+      "tolerance_c": 0.02,
+      "windows_over_tolerance": 3,
+      "share_over_tolerance": 0.000166,
+      "test_rmse_walk_c": 1.080268,
+      "test_rmse_sklearn_c": 1.080276,
+      "rmse_gap_c": 8e-06,
+      "ok": true
+    },
+    {
+      "head": "max30",
+      "kind": "gbm",
+      "checked": true,
+      "windows": 18072,
+      "max_abs_diff_c": 0.066464,
+      "mean_abs_diff_c": 4e-06,
+      "tolerance_c": 0.02,
+      "windows_over_tolerance": 1,
+      "share_over_tolerance": 5.5e-05,
+      "test_rmse_walk_c": 0.699794,
+      "test_rmse_sklearn_c": 0.699793,
+      "rmse_gap_c": 1e-06,
+      "ok": true
+    }
+  ],
+  "honesty": [
+    "the streams scored here come from the same generator, physics and seed as the ones the model was fitted on; they are separated by a wall in time plus a purge, not by a different process",
+    "no row in this file came from a real fridge, so no number here is a real-fridge accuracy",
+    "metrics are computed from the standard-library walk in backend/app/ai/predict.py, which is the code the deployed backend runs, not from sklearn",
+    "normal and weak_compressor never cross the line in the generator, so for those streams the only thing measured is how often the model cries wolf",
+    "a minute-window is one sample, so the precision and recall above weigh a long breach many times; the episode table weighs each breach once",
+    "the exported walk and sklearn do not agree bit for bit - sklearn walks its trees on a float32 copy of the features, so a few windows per head take the other branch at a split. stdlib_walk_check prints the gap and the run fails if it grows"
+  ]
+}

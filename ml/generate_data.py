@@ -32,10 +32,11 @@ PULL = 0.45                # C/min a healthy compressor takes out while it runs
 ON_AT, OFF_AT = 7.0, 3.0   # the Task 1 thermostat rule, unchanged here and in the simulator
 MIN_OFF_S = 300            # short-cycle protection: five minutes betwen runs
 
-SCENARIOS = ("normal", "door_left_open", "weak_compressor", "power_failure", "heavy_loading")
+SCENARIOS = ("normal", "door_left_open", "weak_compressor", "compressor_failure",
+             "power_failure", "heavy_loading")
 # short device names, because the stream id ends up in every CSV row and in ml/results.json
 LABEL = {"normal": "norm", "door_left_open": "door", "weak_compressor": "weak",
-         "power_failure": "powr", "heavy_loading": "load"}
+         "compressor_failure": "cmpf", "power_failure": "powr", "heavy_loading": "load"}
 
 # how much faster the box equalises with the room during an event, as a multiple of a closed lid
 EVENT_LEAK = {"door": 6.0, "load": 4.0, "outage": 3.0}
@@ -46,12 +47,20 @@ def events_for(scenario, minutes, rng):
 
     Each entry is (start_minute, length_minutes, kind). normal has none - it is the control that
     tells the evaluator how many false alarms the model raises on a fridge doing nothing wrong.
+
+    The compressor_failure window is the mode the other five cannot teach: a warm box with the
+    compressor observed OFF and the supply observed OK. In every other scenario a warm box is a box
+    the compressor is already fighting, so a model trained without this case learns "warm means it
+    will be pulled back down" and forecasts a dead fridge as cooling itself.
     """
     days = max(1, minutes // MINUTES_PER_DAY)
     out = []
     if scenario == "door_left_open":
         for d in range(days):
             out.append((d * MINUTES_PER_DAY + rng.randint(420, 1000), 90, "door"))
+    elif scenario == "compressor_failure":
+        for d in range(days):
+            out.append((d * MINUTES_PER_DAY + rng.randint(540, 900), rng.randint(150, 240), "fault"))
     elif scenario == "power_failure":
         for d in range(days):
             start = d * MINUTES_PER_DAY + rng.randint(300, 600)
@@ -79,9 +88,9 @@ def simulate(name, scenario, minutes, seed):
         power_ok = kind != "outage"
         # a wearing compressor loses pull steadily across the window; 1.0 everywhere else
         factor = max(0.32, 1.0 - 0.70 * (i / minutes)) if decay else 1.0
-        if comp_on and (not power_ok or t <= OFF_AT):
+        if comp_on and (not power_ok or kind == "fault" or t <= OFF_AT):
             comp_on, off_until = False, ts + MIN_OFF_S
-        elif (not comp_on and t >= ON_AT and power_ok and ts >= off_until):
+        elif (not comp_on and t >= ON_AT and power_ok and ts >= off_until and kind != "fault"):
             comp_on = True
         if kind == "load" and i == next((e[0] for e in events if e[0] == i), None):
             t += 3.5    # the stock itself arrives at room temperature
@@ -119,7 +128,7 @@ def main(argv=None):
     chosen = a.only or list(SCENARIOS)
 
     merged = []
-    print(f"scenario          rows  >8C-min  breach-episodes  duty    digest")
+    print(f"scenario            rows  >8C-min  breach-episodes  duty    digest")
     for scenario in chosen:
         # two streams per scenario: an evaluator needs a population, not a single lucky fridge
         for n in ("A", "B"):
@@ -128,7 +137,7 @@ def main(argv=None):
             warm = sum(1 for r in rows if r[2] > 8)
             duty = sum(r[3] for r in rows) / len(rows)
             episodes = sum(1 for j in range(1, len(rows)) if rows[j][2] > 8 >= rows[j - 1][2])
-            print(f"{scenario:<16}{len(rows):>6}{warm:>9}{episodes:>17}{duty:>8.2f}  {digest}")
+            print(f"{scenario:<18}{len(rows):>6}{warm:>9}{episodes:>17}{duty:>8.2f}  {digest}")
             merged.extend(rows)
     # the committed sample is the merged stream in time order, so it holds several scenarios
     merged.sort(key=lambda r: (r[1], r[0]))

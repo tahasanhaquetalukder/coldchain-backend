@@ -17,6 +17,7 @@ from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from . import audit, database, hmac_auth, models
+from .ai import predict as ai_predict
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -330,9 +331,67 @@ def sensor(m: SensorMsg, db: Session = Depends(database.get_db)):
     cleanup_old_nonces(db)
     if alert:
         notify(alert)   # after the commit: SQLite holds one writer, and a network call must not sit inside it
+    # Task 5: the same is true of the forecast, so a breach warning does not wait for somebody to open
+    # the Insights page. Once a minute per node - each look reads back ninety minutes of rows.
+    if ai_watch_due(m.device_id, time.time()):
+        ai_evaluate(db, f)
     statuses = [batch_state(b)["status"] for b in db.query(models.Batch).filter_by(fridge_id=f.id)]
     return {"status": "ok",
             "batch_status": "Discard" if "Discard" in statuses else "At Risk" if "At Risk" in statuses else "Safe" if statuses else None}
+
+
+# ---------- Task 5: the 30-minute forecast and the breach warning ----------
+AI_LOOKBACK_S = 90 * 60     # rows handed to the feature builder; the window itself only needs 30 minutes
+AI_CHECK_INTERVAL = 60      # seconds between two ingest-triggered evaluations of the same node
+_AI_CHECKED = {}            # device_id -> last evaluation wall-clock, bounded like _REJECT_SEEN
+
+
+def ai_watch_due(device_id, now):
+    last = _AI_CHECKED.get(device_id, 0.0)
+    if now - last < AI_CHECK_INTERVAL:
+        return False
+    if len(_AI_CHECKED) > 2048:
+        _AI_CHECKED.clear()
+    _AI_CHECKED[device_id] = now
+    return True
+
+
+def ai_rows(db: Session, device_id: str, since: float):
+    """The tuples predict.forecast() expects, read straight from the table.
+
+    Not through /api/readings: that route caps at 600 rows, which on a five-second node is fifty
+    minutes and a quarter of them are usually the gap the forecast is being asked about.
+    """
+    return [(r.ts, r.temperature, r.compressor_on, r.door_open, r.power_ok)
+            for r in db.query(models.Reading)
+                        .filter(models.Reading.device_id == device_id, models.Reading.ts >= since)
+                        .order_by(models.Reading.ts).all()]
+
+
+def ai_evaluate(db: Session, f):
+    """One forecast for one fridge, plus the single audit row and message a new episode earns.
+
+    The episode bookkeeping is in app.ai.predict and is keyed by device, so the ingest path and this
+    route can both call it and still produce one BREACH_WARNING per heat wave, not one per poll.
+    """
+    out = ai_predict.forecast(ai_rows(db, f.device_id, time.time() - AI_LOOKBACK_S), device_id=f.device_id)
+    out["device_name"] = f.name
+    if out.get("breach_warning_raised"):
+        details = (f"{f.device_id} forecast above {out['threshold_c']:g} C within {out['horizon_min']} min: "
+                   f"now {out['now_c']} C, peak {out['max_next_30_c']} C, model {out['model']}")
+        audit.create_audit_log(db, "BREACH_WARNING", details)
+        notify(f"{f.name}: predicted above {out['threshold_c']:g} C within {out['horizon_min']} minutes "
+               f"(peak {out['max_next_30_c']} C, now {out['now_c']} C)")
+    return out
+
+
+@app.get("/api/ai/forecast")
+def ai_forecast(device_id: str, _: dict = Depends(ANY), db: Session = Depends(database.get_db)):
+    """Any logged-in role: a ward clerk who needs to know whether to move the stock now is not an admin."""
+    f = db.query(models.Fridge).filter_by(device_id=device_id).first()
+    if not f:
+        raise HTTPException(404, "Unknown device")
+    return ai_evaluate(db, f)
 
 
 # ---------- dashboard & inventory ----------
