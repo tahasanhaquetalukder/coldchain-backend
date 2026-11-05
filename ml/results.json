@@ -1,11 +1,11 @@
 {
   "generated_by": "ml/evaluate.py",
-  "generated_at": "2026-11-05T08:55:37Z",
-  "runtime_seconds": 83.6,
+  "generated_at": "2026-11-05T09:37:49Z",
+  "runtime_seconds": 102.3,
   "model": {
     "path": "backend/app/ai/model.json",
     "bytes": 137720,
-    "generated_at": "2026-11-05T08:37:38Z",
+    "generated_at": "2026-11-05T09:36:04Z",
     "seed": 7,
     "trained_on_windows": 120432,
     "heads": {
