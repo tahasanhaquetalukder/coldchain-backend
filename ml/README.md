@@ -34,6 +34,11 @@ ml/.venv/Scripts/python.exe ml/make_report.py
 deliberate: a feature computed one way at training and another way in production produces an
 accuracy the field never sees.
 
+`evaluate.py` imports `backend/app/ai/compressor.py` for the same reason, and rolls its 0-100 health
+score forward through every stream six hours at a time: the number `GET /api/ai/compressor` serves is
+checked on the same simulated wear curve as the forecast, and on the streams that were never given a
+fault, to see how often it calls a healthy machine weak.
+
 ## Committed and ignored
 
 `ml/data/*.csv` is generated, so it is ignored - except `ml/data/sample.csv`, 500 rows, committed

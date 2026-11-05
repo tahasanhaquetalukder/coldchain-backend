@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Score the shipped model on the simulated streams, and prove the server reads it correctly.
 
-Three things happen here, in this order:
+Four things happen here, in this order:
 
   1. the windows ml/train.py fitted are rebuilt by calling train.collect() and train.time_split(),
      so a metric can never be measured on a matrix the trainer did not use;
@@ -10,7 +10,11 @@ Three things happen here, in this order:
      in this file describes a model the server is not actually running;
   3. the regression and breach-warning metrics are computed from the server's own predictions, next
      to the same metrics for the no-model straight line - "the model works" is only a useful
-     sentence beside "and it beats reading the last fifteen minutes with a ruler".
+     sentence beside "and it beats reading the last fifteen minutes with a ruler";
+  4. the compressor health score is rolled forward through each stream, six hours at a time, to see
+     whether it falls on the wearing compressor and stays put on the healthy one. It is a rule and
+     not a fitted model, so there is no accuracy to claim here - only direction, and the rate at
+     which it cries "weak" about a fridge that was never given a fault.
 
 The data is SIMULATED by ml/generate_data.py and no row of it came from a fridge, so these figures
 describe the pipeline end to end and nothing about a real installation. Nothing here is typed into a
@@ -32,6 +36,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "backend"))
 sys.path.insert(0, HERE)
 
+from app.ai import compressor as C   # noqa: E402  the health score being checked, as the server runs it
 from app.ai import features as F   # noqa: E402  the feature definitions the server uses
 from app.ai import predict as P    # noqa: E402  the walk being checked, and the fallback compared against
 import train as T                  # noqa: E402  collect()/time_split()/read_rows(): one builder, both scripts
@@ -172,6 +177,98 @@ def forward(path):
     return path.replace("\\", "/")
 
 
+# ---------- the compressor health score, rolled across each stream ----------
+HEALTH_FIRST_MIN = 1440    # a day of history before a rolling point means anything
+HEALTH_ROLL_MIN = 360      # then one point every six hours
+HEALTH_EDGES = 3           # start and end are medians of this many points, not one lucky cycle
+HEALTH_DROP_POINTS = 10    # a wearing machine must move at least this far between the two edges
+HEALTH_FALSE_WEAK_MAX = 0.05   # and a healthy one must be called weak on at most 5 % of its points
+
+
+def health_points(rows):
+    """The score as it would have read at each cut, from the rows up to that cut.
+
+    score() takes its baseline from the earliest share of the cycles it is given and compares it with
+    the newest, so feeding it history up to a point in time is the same question an operator asks the
+    page on that morning - not a rerun of the whole week's data with the ending hidden.
+    """
+    out = []
+    first, last = int(rows[0][0] // 60), int(rows[-1][0] // 60)
+    for cut in range(first + HEALTH_FIRST_MIN, last, HEALTH_ROLL_MIN):
+        rep = C.score([r for r in rows if r[0] <= cut * 60], device_id="roll")
+        if rep["score"] is not None:
+            out.append({"minute_of_stream": cut - first, "score": rep["score"], "band": rep["band"],
+                        "cycles_used": rep["cycles_used"], "trend": rep["trend"]["state"],
+                        "reasons": rep["reasons"]})
+    return out
+
+
+def _edge(points, at_start):
+    half = points[:HEALTH_EDGES] if at_start else points[-HEALTH_EDGES:]
+    return float(np.median([p["score"] for p in half])) if half else None
+
+
+def health_over_time(paths):
+    """Per scenario: where the score started, where it ended, and how often it called a healthy
+    fridge weak. Nothing here is fitted - the score is a rule, so the honest claim is direction."""
+    by_scenario = {}
+    for path in paths:
+        name, scenario = T.stream_label(path)
+        points = health_points(T.read_rows(path))
+        if len(points) < 2 * HEALTH_EDGES:
+            by_scenario.setdefault(scenario, []).append({"stream": name, "points": points,
+                                                        "note": "too few rolling points to compare edges"})
+            continue
+        start, end = _edge(points, True), _edge(points, False)
+        weak = sum(1 for p in points if p["band"] == "weak")
+        by_scenario.setdefault(scenario, []).append({
+            "stream": name, "start_score": start, "end_score": end, "fall_points": round(start - end, 2),
+            "min_score": min(p["score"] for p in points), "max_score": max(p["score"] for p in points),
+            "points": len(points), "points_in_weak_band": weak,
+            "scores": [p["score"] for p in points], "final_reasons": points[-1]["reasons"]})
+    summary = {}
+    for scenario, streams in by_scenario.items():
+        full = [s for s in streams if "start_score" in s]
+        if not full:
+            summary[scenario] = {"streams": len(streams), "note": "no stream had enough cycles"}
+            continue
+        pts = sum(s["points"] for s in full)
+        summary[scenario] = {
+            "streams": len(streams), "rolling_points": pts,
+            "start_score": round(float(np.mean([s["start_score"] for s in full])), 2),
+            "end_score": round(float(np.mean([s["end_score"] for s in full])), 2),
+            "mean_fall_points": round(float(np.mean([s["fall_points"] for s in full])), 2),
+            "lowest_score_seen": min(s["min_score"] for s in full),
+            "highest_score_seen": max(s["max_score"] for s in full),
+            "points_in_weak_band": sum(s["points_in_weak_band"] for s in full),
+            "share_of_points_weak": _ratio(sum(s["points_in_weak_band"] for s in full), pts),
+            "per_stream": {s["stream"]: {"start": s["start_score"], "end": s["end_score"],
+                                        "scores": s["scores"]} for s in full}}
+    return summary
+
+
+def health_checks(summary):
+    """Two claims worth failing a run over, stated as pass or fail rather than as a number to squint at.
+
+    Both compare against None, not falsiness: a score of 0 and a false-weak share of 0 are the two
+    most interesting values this table can produce, and `or` would read both as missing.
+    """
+    weak, norm = summary.get("weak_compressor"), summary.get("normal")
+    drop = None if not weak or weak.get("mean_fall_points") is None else weak["mean_fall_points"]
+    share = None if not norm else norm.get("share_of_points_weak")
+    return [
+        {"check": "the score falls on a weakening compressor",
+         "expected": f"start minus end at least {HEALTH_DROP_POINTS:g} points",
+         "measured": (f"{weak['start_score']} then {weak['end_score']}, a fall of {drop} points"
+                      if drop is not None else "no stream scored"),
+         "ok": drop is not None and drop >= HEALTH_DROP_POINTS},
+        {"check": "a healthy compressor is not called weak",
+         "expected": f"at most {HEALTH_FALSE_WEAK_MAX:.0%} of rolling points in the weak band",
+         "measured": (f"{norm['points_in_weak_band']} of {norm['rolling_points']} points = {share:.1%}"
+                      if share is not None else "no stream scored"),
+         "ok": share is not None and share <= HEALTH_FALSE_WEAK_MAX}]
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--csv", action="append", help="streams to score; default is every ml/data/sim-*.csv")
@@ -281,6 +378,10 @@ def main(argv=None):
             for n, y, k in (("temp30", yt, 0), ("max30", ym, 1))]
     bad = [c for c in walk if c["checked"] and not c["ok"]]
 
+    health = health_over_time(paths)
+    checks = health_checks(health)
+    bad += [c for c in checks if not c["ok"]]
+
     results = {
         "generated_by": "ml/evaluate.py",
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -301,6 +402,11 @@ def main(argv=None):
         "regression_on_test": reg,
         "breach_on_test": breach,
         "episodes_on_test": episodes,
+        "compressor_health": {"method": f"backend/app/ai/compressor.py score(), re-run on the rows up to "
+                              f"each cut, one cut every {HEALTH_ROLL_MIN} minutes from minute "
+                              f"{HEALTH_FIRST_MIN} of the stream",
+                              "edges_are_medians_of": HEALTH_EDGES,
+                              "per_scenario": health, "checks": checks},
         "stdlib_walk_check": walk,
         "honesty": [
             "the streams scored here come from the same generator, physics and seed as the ones the "
@@ -316,6 +422,13 @@ def main(argv=None):
             "the exported walk and sklearn do not agree bit for bit - sklearn walks its trees on a "
             "float32 copy of the features, so a few windows per head take the other branch at a "
             "split. stdlib_walk_check prints the gap and the run fails if it grows",
+            "compressor_health is a rule, not a fitted model: it has no held-out set and no accuracy "
+            "to quote. What is measured is direction (does it fall on the stream where the pull "
+            "decays) and the false-alarm rate on the streams that were never given a fault",
+            "the health score's baseline is a fridge's own earliest cycles, so it measures drift away "
+            "from the start of stored history: a compressor installed already worn, or one whose "
+            "history was wiped, is graded against its own bad behaviour and reads healthy. Nothing in "
+            "this data can show that limitation, because every stream starts at full pull",
         ],
     }
     blob = json.dumps(results, indent=2)
@@ -362,11 +475,29 @@ def main(argv=None):
               f"{c['tolerance_c']:g} C ({c['share_over_tolerance']:.4%}) | test RMSE walk "
               f"{c['test_rmse_walk_c']:.6f} vs sklearn {c['test_rmse_sklearn_c']:.6f} -> "
               f"{'AGREES' if c['ok'] else 'DISAGREES'}")
+    print(f"\nrolling the compressor health score forward through each stream, one point every "
+          f"{HEALTH_ROLL_MIN // 60} h of trace")
+    print(f"  {'scenario':<20}{'start':>7}{'end':>6}{'fell by':>8}{'lowest':>8}{'weak pts':>10}{'share':>8}")
+    for s, v in health.items():
+        if "start_score" not in v:
+            print(f"  {s:<20}  {v['note']}")
+            continue
+        print(f"  {s:<20}{v['start_score']:>7}{v['end_score']:>6}{v['mean_fall_points']:>8}"
+              f"{v['lowest_score_seen']:>8}{v['points_in_weak_band']:>10}"
+              f"{(v['share_of_points_weak'] or 0.0):>8.2%}")
+    print("  a positive \"fell by\" means the score dropped, which is the direction a wearing "
+          "compressor moves it; \"weak pts\" counts rolling points in the below-50 band")
+    for c in checks:
+        print(f"  {'PASS' if c['ok'] else 'FAIL'}: {c['check']} - expected {c['expected']}, "
+              f"measured {c['measured']}")
     print(f"\nwrote {a.out} ({len(blob)} bytes)")
     print("every number above was printed by this run; none of them was typed.")
     print("the data is simulated. None of it came from a fridge, so none of it is a real accuracy.")
     if bad:
-        print("\nFAIL: the server reads a head differently from sklearn. Do not ship this model.")
+        for c in bad:
+            print("\nFAIL: " + (c["check"] if "check" in c else
+                                f"the exported {c['head']} walk does not reproduce sklearn's model"))
+        print("these numbers are not shippable until every FAIL above passes.")
         return 1
     return 0
 

@@ -17,7 +17,7 @@ from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from . import audit, database, hmac_auth, models
-from .ai import predict as ai_predict
+from .ai import compressor as ai_health, predict as ai_predict
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -392,6 +392,62 @@ def ai_forecast(device_id: str, _: dict = Depends(ANY), db: Session = Depends(da
     if not f:
         raise HTTPException(404, "Unknown device")
     return ai_evaluate(db, f)
+
+
+# ---------- Task 5 phase 3: the compressor health score ----------
+COMPRESSOR_LOOKBACK_S = 5 * 86400   # days of trace the cycle splitter is allowed to look at
+COMPRESSOR_MAX_ROWS = 30000         # a five-second node produces 86400 rows in that window
+
+
+def compressor_rows(db: Session, device_id: str):
+    """(rows, truncated) for one node, oldest first, in the shape compressor.score() reads.
+
+    The newest rows are the interesting half, so the query takes them newest-first and stops, then
+    reverses. Truncation is returned rather than raised so the report can say "scored on the newest
+    30000 of the rows you hold" instead of quietly scoring a shorter history than the operator assumes.
+
+    A column tuple rather than Reading objects, because the Insights page polls this for every
+    fridge it shows: thirty thousand ORM instances per node per poll is a thousand objects kept alive
+    to answer a question that needs five numbers each.
+    """
+    since = time.time() - COMPRESSOR_LOOKBACK_S
+    rows = (db.query(models.Reading)
+              .with_entities(models.Reading.ts, models.Reading.temperature, models.Reading.compressor_on,
+                             models.Reading.door_open, models.Reading.power_ok)
+              .filter(models.Reading.device_id == device_id, models.Reading.ts >= since)
+              .order_by(models.Reading.id.desc()).limit(COMPRESSOR_MAX_ROWS + 1).all())
+    truncated = len(rows) > COMPRESSOR_MAX_ROWS
+    return list(reversed(rows[:COMPRESSOR_MAX_ROWS])), truncated
+
+
+def compressor_report(db: Session, f):
+    """One fridge's health score. Phase 4's relocation rules call this, so it is not inside the route."""
+    rows, truncated = compressor_rows(db, f.device_id)
+    out = ai_health.score(rows, device_id=f.device_id)
+    out["device_name"] = f.name
+    out["rows_read"] = len(rows)
+    if truncated:
+        out["warnings"].append(f"scored on the newest {COMPRESSOR_MAX_ROWS} readings of the last "
+                               f"{COMPRESSOR_LOOKBACK_S // 86400} days")
+    return out
+
+
+@app.get("/api/ai/compressor")
+def ai_compressor(device_id: Optional[str] = None, _: dict = Depends(ANY),
+                  db: Session = Depends(database.get_db)):
+    """Every fridge by default - the Insights page draws one card per node - or one with ?device_id=.
+
+    One shape for both, {"count": n, "fridges": [...]}: a UI that has to branch on whether a filter
+    was typed is a UI that gets the branch wrong on the day somebody filters.
+    """
+    if device_id:
+        f = db.query(models.Fridge).filter_by(device_id=device_id).first()
+        if not f:
+            raise HTTPException(404, "Unknown device")
+        fridges = [compressor_report(db, f)]
+    else:
+        fridges = [compressor_report(db, f) for f in db.query(models.Fridge).all()]
+    return {"count": len(fridges), "fridges": fridges}
 
 
 # ---------- dashboard & inventory ----------
